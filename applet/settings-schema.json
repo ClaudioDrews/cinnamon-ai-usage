@@ -1,0 +1,34 @@
+{
+ "layout": {
+  "type": "layout",
+  "pages": ["general"],
+  "general": {
+   "type": "page",
+   "title": "Coleta",
+   "sections": ["collect"]
+  },
+  "collect": {
+   "type": "section",
+   "title": "Coleta de uso",
+   "keys": ["collect-enabled", "collect-interval"]
+  }
+ },
+
+ "collect-enabled": {
+  "type": "switch",
+  "default": true,
+  "description": "Coletar uso periodicamente",
+  "tooltip": "Quando desativado, o applet mantém a última leitura válida e para de consultar os serviços. Nenhuma credencial é guardada aqui."
+ },
+
+ "collect-interval": {
+  "type": "spinbutton",
+  "default": 120,
+  "min": 30,
+  "max": 3600,
+  "step": 30,
+  "units": "seconds",
+  "description": "Intervalo entre coletas",
+  "tooltip": "Tempo entre duas leituras automáticas. O botão Atualizar do menu sempre força uma leitura na hora."
+ }
+}
