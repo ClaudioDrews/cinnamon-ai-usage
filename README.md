@@ -25,7 +25,7 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 | DeepSeek | Saldo por moeda | Consulta autenticada OK |
 | OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; chave local sem limite |
 | Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: dois créditos e três modelos |
-| Grok / xAI | Saldo pré-pago da API de gerenciamento | Falta chave de gerenciamento e team_id |
+| Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
 
 O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero.
 
@@ -77,8 +77,8 @@ O saldo não está na chave de inferência: ele vive na **Management API**, que 
 
 O conector usa dois dados:
 
-- `XAI_MANAGEMENT_API_KEY` — a management key (Bearer). Coloque-a pelo botão **Credenciais…** do applet, que grava no cofre do sistema.
-- `grok.team_id` em `~/.config/cinnamon-ai-usage/config.json` — o identificador do time, visível na URL do Console (`console.x.ai/team/<team_id>/…`).
+- `XAI_MANAGEMENT_KEY` (aceito também como `XAI_MANAGEMENT_API_KEY`) — a management key (Bearer). Coloque-a pelo botão **Credenciais…** do applet, que grava no cofre do sistema.
+- `XAI_TEAM_ID` no próprio arquivo de credenciais, ou `grok.team_id` em `~/.config/cinnamon-ai-usage/config.json`, ou o campo correspondente na janela **Credenciais…** — o identificador do time, visível na URL do Console (`console.x.ai/team/<team_id>/…`). O valor da configuração tem precedência.
 
 Endpoints que interessam para um painel:
 
@@ -90,7 +90,9 @@ Endpoints que interessam para um painel:
 | Limites de gasto configurados | `GET /v1/billing/teams/{team_id}/postpaid/spending-limits` |
 | Uso por modelo e período | `POST /v1/billing/teams/{team_id}/usage` |
 
-Base de todos: `https://management-api.x.ai`. O campo de saldo é `total.val`, em centavos de dólar. Como a documentação exemplifica esse campo com valor **negativo** e ainda não houve leitura real nesta máquina, o applet mostra a magnitude e diz, na nota do serviço, o que a API devolveu — em vez de exibir um saldo negativo com aparência de dívida. O sentido do sinal será fixado na primeira leitura real.
+Base de todos: `https://management-api.x.ai`. O saldo vem em `total.val`, em centavos, e **com o sinal invertido**: a xAI registra a recarga como valor negativo no razão e o total é a soma das mudanças, de modo que o crédito disponível é o módulo desse total. O applet exibe o crédito disponível e registra a convenção na nota do serviço.
+
+Quando houver consumo de crédito pré-pago, a segunda linha do serviço mostra o percentual usado sobre o total recarregado (a soma das recargas), porque a chave não traz teto próprio. Enquanto não há consumo, aparece só o saldo — nada de barra em zero inventada.
 
 A management key é uma credencial poderosa: ela cria e revoga chaves de API e mexe em cobrança. Guarde-a no cofre, não em arquivo versionado.
 

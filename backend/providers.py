@@ -307,26 +307,47 @@ def opencode(config=None):
     return service("opencode", source="OpenCode Go · uso (experimental)", metrics=metrics, identity=token)
 
 
-def grok(config):
-    key = require_key("XAI_MANAGEMENT_API_KEY", config)
-    team = (config.get("grok") or {}).get("team_id", "")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(team)):
-        raise Unavailable("Informe grok.team_id na configuração para consultar a API xAI.", "unconfigured")
-    payload = request(f"https://management-api.x.ai/v1/billing/teams/{team}/prepaid/balance", key)
+def parse_grok(payload):
+    """Saldo pré-pago e, quando já houve consumo, quanto do crédito foi usado.
+
+    ``total.val`` vem com o sinal invertido: recarga entra como valor negativo no razão e o total
+    é a soma das mudanças, de modo que o crédito disponível é o módulo desse total (conferido em
+    resposta real: recarga negativa, total negativo, mesmo valor absoluto). O denominador do percentual
+    são os créditos concedidos — a soma das recargas — porque a chave não traz teto próprio; a
+    métrica só aparece quando existe consumo, para não encher o menu de barra em zero.
+    """
     total = number((payload.get("total") or {}).get("val"))
     if total is None:
         raise Unavailable("Saldo xAI não reconhecido.")
-    valor, aviso = total / 100, ""
-    if valor < 0:
-        # A documentação exemplifica total.val negativo (top-up de -1000 centavos) e não há
-        # resposta real verificada nesta máquina. Exibir "-12,34 USD" como saldo passaria por
-        # dívida; mostramos a magnitude e dizemos o que a API devolveu, sem decidir o sinal.
-        aviso = (f"A API xAI devolveu {valor:.2f} USD para o saldo; a magnitude é exibida e o "
-                 "sentido do sinal será confirmado na primeira leitura real.")
-        valor = abs(valor)
-    return service("grok", source="xAI Management API · não inclui assinatura Grok", message=aviso,
-                   identity=team,
-                   metrics=[metric("balance", "Saldo pré-pago da API", "balance", value=valor, currency="USD")])
+    concedidos = usados = 0.0
+    for mudanca in payload.get("changes") or []:
+        valor = number((mudanca.get("amount") or {}).get("val"))
+        if valor is None:
+            continue
+        concedidos += -valor if valor < 0 else 0.0
+        usados += valor if valor > 0 else 0.0
+    metrics = [metric("balance", "Saldo pré-pago da API", "balance",
+                      value=-total / 100, currency="USD")]
+    if concedidos > 0 and usados > 0:
+        metrics.append(metric("credits_used", "Créditos pré-pagos usados", "quota",
+                              percent=100 * usados / concedidos,
+                              value=usados / 100, currency="USD"))
+    return metrics
+
+
+def grok(config):
+    key = credentials.service_value("grok", config)
+    if not key:
+        raise Unavailable("Chave de gerenciamento da xAI não configurada.", "unconfigured")
+    team = (config.get("grok") or {}).get("team_id") or credentials.setting_value("grok", config) or ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(team)):
+        raise Unavailable("Informe grok.team_id na configuração ou XAI_TEAM_ID junto das "
+                          "credenciais para consultar a API xAI.", "unconfigured")
+    payload = request(f"https://management-api.x.ai/v1/billing/teams/{team}/prepaid/balance", key)
+    return service("grok", source="xAI Management API · não inclui assinatura Grok",
+                   message="A xAI registra recargas como valor negativo em total.val; o saldo "
+                           "exibido é o crédito disponível.",
+                   identity=team, metrics=parse_grok(payload))
 
 
 def parse_antigravity(payload):

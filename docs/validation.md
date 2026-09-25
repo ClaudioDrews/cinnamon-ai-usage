@@ -59,6 +59,17 @@ Correção encontrada na própria verificação: sem alerta, `_paintIcon` passav
 
 O aparelho de inspeção do painel merece registro: `imports.ui.appletManager.applets[uuid]` é o espaço de nomes do diretório do applet, não a lista de instâncias; a instância viva foi localizada percorrendo as caixas dos painéis e lendo `_delegate._uuid`. A cor aplicada por `set_style` aparece no `get_theme_node().get_color('color')` e nos pixels do painel.
 
+## Painel completo: a chave da xAI entrou
+
+Com a management key e o `team_id` colocados pelo usuário no arquivo de credenciais desta máquina, os sete serviços passaram a ter leitura — Grok inclusive, que era o único buraco. Ajustes feitos no mesmo dia:
+
+- O conector passou a aceitar `XAI_MANAGEMENT_KEY` além de `XAI_MANAGEMENT_API_KEY`, e a ler o time de `XAI_TEAM_ID` no arquivo de credenciais quando não houver `grok.team_id` na configuração. `team_id` continua validado contra `[A-Za-z0-9_-]{1,100}` antes de entrar na URL.
+- O sinal de `total.val` deixou de ser incerteza: a xAI registra a recarga como valor negativo no razão e o total é a soma das mudanças, de modo que o crédito disponível é o módulo desse total. O applet passou a exibir o crédito disponível e a registrar a convenção na nota do serviço.
+- Com consumo, a segunda métrica mostra o percentual sobre os créditos recarregados (soma das recargas), que é o único denominador honesto da chave; sem consumo, nada de barra em zero. `GET /postpaid/invoice/preview` desta conta devolve `effectiveSpendingLimit` 0 e nenhuma linha de fatura, ou seja, o pós-pago está desligado e só os créditos pré-pagos serão usados.
+- A janela de credenciais ganhou o campo não secreto do `team_id` e reconhece o nome alternativo da chave ao mostrar a origem do valor.
+
+Verificado: 35 testes Python, `compileall`, smoke GTK da janela de credenciais (cinco campos de chave, origem de cada valor, `team_id` lido do arquivo, gravação 0600 em diretório temporário), consulta real dos sete provedores pelo coletor e menu do painel com Grok/xAI entre as cinco linhas, sem aviso novo no log. O Antigravity aparece como leitura antiga porque o servidor da IDE não estava no ar no momento da coleta.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.

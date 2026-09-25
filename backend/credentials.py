@@ -30,10 +30,15 @@ SERVICE_KEYS = {
     "openrouter": ("OPENROUTER_API_KEY",),
     "deepseek": ("DEEPSEEK_API_KEY",),
     "opencode": ("OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"),
-    "grok": ("XAI_MANAGEMENT_API_KEY",),
+    "grok": ("XAI_MANAGEMENT_API_KEY", "XAI_MANAGEMENT_KEY"),
     "nous": ("NOUS_PORTAL_TOKEN",),
     "codex": (),
     "antigravity": (),
+}
+
+# Dados não secretos que costumam acompanhar a credencial (time, projeto, conta).
+SERVICE_SETTINGS = {
+    "grok": ("XAI_TEAM_ID",),
 }
 
 # Serviços que aceitam token OAuth vindo de arquivo JSON, em vez de chave digitada.
@@ -216,6 +221,18 @@ def resolve(names, config=None):
 def service_value(service, config=None):
     """Primeiro valor disponível entre as variáveis do serviço, ou None."""
     names = SERVICE_KEYS.get(service, ())
+    if not names:
+        return None
+    values = resolve(names, config)
+    for name in names:
+        if values.get(name):
+            return values[name]
+    return None
+
+
+def setting_value(service, config=None):
+    """Primeiro valor disponível entre as variáveis não secretas do serviço, ou None."""
+    names = SERVICE_SETTINGS.get(service, ())
     if not names:
         return None
     values = resolve(names, config)

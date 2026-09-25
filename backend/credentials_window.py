@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -34,9 +35,13 @@ KEY_SERVICES = (
     ("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "a chave em /api/v1/key"),
     ("deepseek", "DeepSeek", "DEEPSEEK_API_KEY", "a chave de API do saldo"),
     ("opencode", "OpenCode Go", "OPENCODE_GO_API_KEY", "a chave do plano Go (Zen não serve)"),
-    ("grok", "Grok / xAI", "XAI_MANAGEMENT_API_KEY", "chave da API de gerenciamento, não a de inferência"),
+    ("grok", "Grok / xAI", "XAI_MANAGEMENT_KEY",
+     "management key do Console → Settings → Management Keys (a de inferência não serve)"),
     ("nous", "Nous Portal", "NOUS_PORTAL_TOKEN", "token OAuth da conta"),
 )
+
+# Nomes equivalentes aceitos pela mesma credencial.
+KEY_ALIASES = {"XAI_MANAGEMENT_KEY": ("XAI_MANAGEMENT_API_KEY",)}
 
 # Serviços cujo token costuma viver em arquivo JSON de outro programa.
 TOKEN_SERVICES = (("nous", "Nous Portal"),)
@@ -74,12 +79,13 @@ def save_config(config):
 
 def source_of(name, config):
     """De onde o valor viria hoje, sem revelar o valor."""
-    if credentials.keyring_get(name):
-        return "guardado no cofre"
-    if credentials.read_file(config.get("credentials_path")).get(name):
-        return "do arquivo indicado"
-    if os.environ.get(name):
-        return "da variável de ambiente"
+    for candidate in (name,) + KEY_ALIASES.get(name, ()):
+        if credentials.keyring_get(candidate):
+            return "guardado no cofre"
+        if credentials.read_file(config.get("credentials_path")).get(candidate):
+            return "do arquivo indicado"
+        if os.environ.get(candidate):
+            return "da variável de ambiente"
     return "não configurado"
 
 
@@ -190,6 +196,26 @@ class CredentialsWindow(Gtk.ApplicationWindow):
         box.pack_start(self.file_status, False, False, 0)
 
     def _token_section(self, parent):
+        box = self._section(parent, "Identificadores do time")
+        self._note(box, "Dados que não são segredo, mas a API exige — como o time da xAI. "
+                        "Podem vir daqui, de config.json ou do próprio arquivo de credenciais "
+                        "(XAI_TEAM_ID).")
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        name = Gtk.Label(xalign=0)
+        name.set_markup("<b>Grok / xAI — team_id</b>")
+        row.pack_start(name, False, False, 0)
+        self.team_entry = Gtk.Entry()
+        self.team_entry.set_text((self.config.get("grok") or {}).get("team_id", ""))
+        self.team_entry.set_placeholder_text("console.x.ai/team/&lt;team_id&gt;/…")
+        row.pack_start(self.team_entry, True, True, 0)
+        save_team = Gtk.Button(label="Salvar")
+        save_team.connect("clicked", self._on_save_team)
+        row.pack_start(save_team, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        self.team_status = Gtk.Label(xalign=0)
+        self.team_status.get_style_context().add_class("dim-label")
+        box.pack_start(self.team_status, False, False, 0)
+
         box = self._section(parent, "Token OAuth em arquivo JSON")
         self._note(box, "Para serviços que autenticam por login em vez de chave. O token é procurado "
                         "no JSON, em qualquer nível; nada é copiado para o cache.")
@@ -261,6 +287,20 @@ class CredentialsWindow(Gtk.ApplicationWindow):
         self.config["credentials_path"] = path
         self._save_config("Caminho do arquivo de credenciais atualizado.")
 
+    def _on_save_team(self, _button):
+        valor = self.team_entry.get_text().strip()
+        if valor and not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", valor):
+            self._inform("O team_id aceita apenas letras, números, hífen e sublinhado.",
+                         Gtk.MessageType.WARNING)
+            return
+        grok = dict(self.config.get("grok") or {})
+        if valor:
+            grok["team_id"] = valor
+        else:
+            grok.pop("team_id", None)
+        self.config["grok"] = grok
+        self._save_config("Identificador do time atualizado.")
+
     def _on_save_token(self, _button, service, entry):
         path = entry.get_text().strip()
         if path and not Path(path).expanduser().is_file():
@@ -301,6 +341,13 @@ class CredentialsWindow(Gtk.ApplicationWindow):
                                       "outras variáveis ficam disponíveis para os conectores.")
         else:
             self.file_status.set_text("Nenhum arquivo indicado.")
+        if hasattr(self, "team_status"):
+            do_config = (self.config.get("grok") or {}).get("team_id")
+            do_arquivo = credentials.read_file(self.config.get("credentials_path")).get("XAI_TEAM_ID")
+            self.team_status.set_text(
+                f"team_id atual: {do_config or do_arquivo or 'não definido'}"
+                + (" (da configuração)" if do_config else " (do arquivo de credenciais)"
+                   if do_arquivo else ""))
 
 
 class CredentialsApplication(Gtk.Application):

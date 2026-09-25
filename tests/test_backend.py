@@ -95,40 +95,63 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(got[2]['label'], 'Claude Sonnet 4.6 (Thinking)')
         self.assertNotIn('Modelo', json.dumps(got, ensure_ascii=False))
 
-    def test_positive_balance_has_no_sign_notice(self):
-        value, message = self._snapshot_balance('1234')
-        self.assertEqual(value, 12.34)
-        self.assertEqual(message, '')
+    def _grok_payload(self, total, changes=()):
+        return {'total': {'val': total},
+                'changes': [{'changeOrigin': origem, 'amount': {'val': valor}}
+                            for origem, valor in changes]}
+
+    def test_grok_balance_is_the_available_credit_not_the_ledger_sign(self):
+        metrics = p.parse_grok(self._grok_payload('-1000', [('PURCHASE', '-1000')]))
+        self.assertEqual(metrics[0]['value'], 10.0)
+        self.assertEqual(metrics[0]['currency'], 'USD')
+        self.assertIsNone(metrics[0]['used_percent'])
+        self.assertEqual(len(metrics), 1)  # Sem consumo, sem barra em zero.
+
+    def test_grok_ledger_with_usage_gives_percentage_of_granted_credits(self):
+        metrics = p.parse_grok(self._grok_payload('-1500', [('PURCHASE', '-2000'), ('USAGE', '500')]))
+        self.assertEqual(metrics[0]['value'], 15.0)
+        self.assertEqual(metrics[1]['label'], 'Créditos pré-pagos usados')
+        self.assertEqual(metrics[1]['used_percent'], 25.0)
+        self.assertEqual(metrics[1]['value'], 5.0)
 
     def test_grok_needs_team_id_and_a_configured_key(self):
         with patch.object(p, 'request') as request:
             missing_team = p.collect_provider('grok', {'credentials_path': self._key_file()})
             self.assertEqual(missing_team['status'], 'unconfigured')
-            self.assertNotIn('XAI', json.dumps(missing_team))
+            # A mensagem cita o NOME da variável, nunca o valor lido do arquivo.
+            self.assertNotIn('chave-do-arquivo', json.dumps(missing_team))
             request.assert_not_called()
 
-    def _key_file(self):
+    def _key_file(self, extra=''):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         path = Path(self._tmp.name)/'credenciais.env'
-        path.write_text('XAI_MANAGEMENT_API_KEY="chave-do-arquivo"\n')
+        path.write_text('XAI_MANAGEMENT_KEY="chave-do-arquivo"\n' + extra)
         return str(path)
 
-    def _snapshot_balance(self, val):
-        with patch.object(p, 'require_key', return_value='chave'), \
-             patch.object(p, 'request', return_value={'total': {'val': val}}):
-            result = p.grok({'grok': {'team_id': 'team-1'}})
-        return result['metrics'][0]['value'], result['message']
-
-    def test_grok_uses_key_from_configured_file_and_flags_negative_sign(self):
+    def test_grok_uses_key_from_configured_file(self):
         seen = {}
         with patch.object(p, 'request') as request:
-            request.side_effect = lambda url, key, *a, **k: seen.update(url=url, key=key) or {'total': {'val': '-1234'}}
+            request.side_effect = lambda url, key, *a, **k: seen.update(url=url, key=key) or \
+                self._grok_payload('-1000', [('PURCHASE', '-1000')])
             result = p.grok({'credentials_path': self._key_file(), 'grok': {'team_id': 'team-1'}})
-        self.assertEqual(seen['key'], 'chave-do-arquivo')
+        self.assertEqual(seen['key'], 'chave-do-arquivo')  # Nome alternativo aceito.
         self.assertEqual(seen['url'], 'https://management-api.x.ai/v1/billing/teams/team-1/prepaid/balance')
-        self.assertEqual(result['metrics'][0]['value'], 12.34)
-        self.assertIn('-12.34', result['message'])
+        self.assertEqual(result['metrics'][0]['value'], 10.0)
+
+    def test_grok_team_id_can_come_with_the_credentials(self):
+        seen = {}
+        with patch.object(p, 'request') as request:
+            request.side_effect = lambda url, *a, **k: seen.update(url=url) or self._grok_payload('-1000')
+            result = p.grok({'credentials_path': self._key_file('XAI_TEAM_ID="team-do-arquivo"\n')})
+        self.assertIn('/teams/team-do-arquivo/prepaid/balance', seen['url'])
+        self.assertEqual(result['status'], 'ok')
+
+    def test_grok_rejects_team_id_with_path_characters(self):
+        with patch.object(p, 'request') as request:
+            result = p.collect_provider('grok', {'credentials_path': self._key_file('XAI_TEAM_ID="../outro"\n')})
+        self.assertEqual(result['status'], 'unconfigured')
+        request.assert_not_called()
 
     def test_exception_details_never_escape_provider(self):
         with patch.object(p, 'deepseek', side_effect=RuntimeError('Bearer TOP_SECRET')):
