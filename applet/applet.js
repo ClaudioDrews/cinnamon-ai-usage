@@ -147,10 +147,11 @@ class AIUsageApplet extends Applet.IconApplet {
 
     _paintIcon(highest) {
         if (!this._applet_icon) return;
-        const color = highest >= 90 ? CRITICAL_COLOR : highest >= 70 ? WARNING_COLOR : '';
-        // Sem cor de alerta o ícone simbólico volta à cor do tema.
+        const color = highest >= 90 ? CRITICAL_COLOR : highest >= 70 ? WARNING_COLOR : null;
+        // Sem cor de alerta o ícone simbólico volta à cor do tema: estilo nulo, nunca
+        // string vazia — o parser do St avisa com buffer vazio.
         try {
-            this._applet_icon.set_style(color ? `color: ${color};` : '');
+            this._applet_icon.set_style(color ? `color: ${color};` : null);
         } catch (_) { /* tema sem suporte a cor de ícone */ }
     }
 

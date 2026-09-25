@@ -55,6 +55,8 @@ Em 25/09/2026, a partir do retorno do usuário, cinco mudanças foram implementa
 
 Verificações desta rodada: 29 testes Python offline, teste JS do applet (limite de cinco incluindo o preenchimento por leitura recente, exclusão de serviço sem leitura, prioridade do uso observado, ações do menu incluindo Credenciais…), `node --check`, `compileall`, CJS real com as APIs St/Gio, instalação em diretório temporário com execução do backend instalado, consulta real dos sete provedores e recarga apenas do applet no painel sem reiniciar o Cinnamon e sem novos avisos no log.
 
+Correção encontrada na própria verificação: sem alerta, `_paintIcon` passava string vazia ao `set_style` do ícone e o parser do St registrava dois `cr_parser_new_from_buf`. O estilo agora é `null` nesse caso; contagem de avisos no log antes e depois permaneceu igual (6), inclusive no estado sem alerta, e o teste JS passa a exigir `null` em vez de string vazia.
+
 O aparelho de inspeção do painel merece registro: `imports.ui.appletManager.applets[uuid]` é o espaço de nomes do diretório do applet, não a lista de instâncias; a instância viva foi localizada percorrendo as caixas dos painéis e lendo `_delegate._uuid`. A cor aplicada por `set_style` aparece no `get_theme_node().get_color('color')` e nos pixels do painel.
 
 ## Delegação e revisão

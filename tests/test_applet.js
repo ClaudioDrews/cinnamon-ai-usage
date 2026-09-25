@@ -79,7 +79,7 @@ first.cb(first, {});
 assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
 assert(applet.iconPath.endsWith('/assets/robot-head-symbolic.svg'));
 assert(applet.symbolic); // Ícone simbólico herda a cor do tema.
-for (const [percent, color] of [[69.9, ''], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
+for (const [percent, color] of [[69.9, null], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
     applet._snapshot.services = [
         {id: 'codex', label: 'Codex', status: 'ok', metrics: [
             {kind: 'quota', label: 'Semana', used_percent: percent},
@@ -93,7 +93,8 @@ for (const [percent, color] of [[69.9, ''], [70, '#e5a50a'], [89.9, '#e5a50a'], 
         ]},
     ];
     applet._refreshIcon();
-    assert(applet._applet_icon.style.includes(color));
+    if (color) assert(applet._applet_icon.style.includes(color));
+    else assert.equal(applet._applet_icon.style, null); // Sem alerta: estilo nulo, não vazio.
     assert.equal(applet._applet_icon_box.style, undefined); // Sem borda: o alerta é a cor do robô.
     assert(applet.tooltip.includes(`Codex — Semana: ${percent.toFixed(1).replace('.', ',')}% usado`));
     assert(applet.tooltip.includes('Disponível: 999,00 USD'));
