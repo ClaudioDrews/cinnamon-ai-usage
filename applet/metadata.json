@@ -4,5 +4,5 @@
   "description": "Uso recente dos serviços de IA configurados, direto no painel do Cinnamon",
   "icon": "dialog-information",
   "max-instances": 1,
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import selectors
-import shlex
 import shutil
 import ssl
 import subprocess
@@ -16,6 +15,8 @@ import time
 from datetime import datetime, timezone
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler, ProxyHandler
 from urllib.error import HTTPError, URLError
+
+import credentials
 
 SERVICES = {
     "codex": "Codex", "antigravity": "Antigravity", "grok": "Grok / xAI",
@@ -88,27 +89,12 @@ def read_json(path):
         return {}
 
 
-def credentials(names):
-    result = {k: os.environ[k] for k in names if os.environ.get(k)}
-    path = Path.home() / ".config/agentes/credenciais.env"
-    try:
-        for line in path.read_text().splitlines():
-            match = re.match(r"^\s*([A-Z][A-Z0-9_]*)=(.*)$", line)
-            if not match or match[1] not in names or match[1] in result:
-                continue
-            parts = shlex.split(match[2], comments=True, posix=True)
-            if len(parts) == 1:
-                result[match[1]] = parts[0]
-    except (OSError, ValueError):
-        pass
-    return result
-
-
-def require_key(name):
-    key = credentials([name]).get(name)
-    if not key:
+def require_key(name, config=None):
+    """Valor da variável pelo cofre, arquivo indicado ou ambiente."""
+    value = credentials.resolve([name], config).get(name)
+    if not value:
         raise Unavailable("Credencial não configurada.", "unconfigured")
-    return key
+    return value
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -170,7 +156,7 @@ def parse_codex(payload):
     return out
 
 
-def codex():
+def codex(config=None):
     executable = shutil.which("codex")
     if not executable:
         raise Unavailable("Codex CLI não encontrado.", "unconfigured")
@@ -242,8 +228,8 @@ def parse_openrouter(payload):
     return out
 
 
-def openrouter():
-    key = require_key("OPENROUTER_API_KEY")
+def openrouter(config=None):
+    key = require_key("OPENROUTER_API_KEY", config)
     return service("openrouter", source="OpenRouter · chave", identity=key,
                    metrics=parse_openrouter(request("https://openrouter.ai/api/v1/key", key)))
 
@@ -255,37 +241,43 @@ def parse_deepseek(payload):
             and d.get("currency") in ("USD", "CNY")]
 
 
-def deepseek():
-    key = require_key("DEEPSEEK_API_KEY")
+def deepseek(config=None):
+    key = require_key("DEEPSEEK_API_KEY", config)
     return service("deepseek", source="DeepSeek · saldo", identity=key,
                    metrics=parse_deepseek(request("https://api.deepseek.com/user/balance", key)))
 
 
 def parse_nous(payload):
+    """Saldos do Nous. Rollover e recarga impedem inferir percentual mensal."""
     access = payload.get("paid_service_access") or {}
+    total = number(access.get("total_usable_credits"))
+    plan_balance = number(access.get("subscription_credits_remaining"))
+    purchased = number(access.get("purchased_credits_remaining"))
     out = []
-    for key, label in [("total_usable_credits", "Saldo total disponível"),
-                       ("subscription_credits_remaining", "Saldo do plano"),
-                       ("purchased_credits_remaining", "Saldo de recargas")]:
-        if number(access.get(key)) is not None:
-            out.append(metric(key, label, "balance", value=access[key], currency="USD"))
-    sub = payload.get("subscription") or {}
-    if sub.get("current_period_end"):
-        for m in out:
-            if m["id"] == "subscription_credits_remaining":
-                m["reset_at"] = stamp(sub["current_period_end"])
-    # Rollover/topups complicate the denominator: don't infer percent from monthly allowance.
+    if total is not None:
+        out.append(metric("total_usable_credits", "Saldo total disponível", "balance",
+                          value=total, currency="USD"))
+    # Saldo do plano igual ao total é a mesma informação: uma linha só.
+    if plan_balance is not None and (total is None or plan_balance != total):
+        out.append(metric("subscription_credits_remaining", "Saldo do plano", "balance",
+                          value=plan_balance, currency="USD"))
+    if purchased:
+        out.append(metric("purchased_credits_remaining", "Saldo de recargas", "balance",
+                          value=purchased, currency="USD"))
+    period_end = (payload.get("subscription") or {}).get("current_period_end")
+    if period_end:
+        for item in out:
+            if item["id"] in ("total_usable_credits", "subscription_credits_remaining"):
+                item["reset_at"] = stamp(period_end)
     return out
 
 
-def nous():
-    auth = read_json(Path.home()/".hermes/auth.json")
-    state = (auth.get("providers") or {}).get("nous") or {}
-    token = state.get("access_token")
+def nous(config=None):
+    token = credentials.service_value("nous", config) or credentials.oauth_token("nous", config)
     if not token:
-        raise Unavailable("Login Nous do Hermes não encontrado.", "unconfigured")
+        raise Unavailable("Token do Nous Portal não configurado.", "unconfigured")
     payload = request("https://portal.nousresearch.com/api/oauth/account", token)
-    return service("nous", source="Nous Portal · OAuth do Hermes", metrics=parse_nous(payload),
+    return service("nous", source="Nous Portal · token OAuth", metrics=parse_nous(payload),
                    identity=(payload.get("organisation") or {}).get("id"))
 
 
@@ -304,9 +296,8 @@ def parse_go(payload):
     return out
 
 
-def opencode():
-    key = credentials(["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"])
-    token = key.get("OPENCODE_GO_API_KEY") or key.get("OPENCODE_API_KEY")
+def opencode(config=None):
+    token = credentials.service_value("opencode", config)
     if not token:
         raise Unavailable("Chave OpenCode Go não configurada.", "unconfigured")
     payload = request("https://opencode.ai/zen/go/v1/usage", token)
@@ -330,28 +321,36 @@ def grok(config):
 
 
 def parse_antigravity(payload):
+    """Cotas do Antigravity: créditos do plano primeiro, depois fração por modelo.
+
+    Os modelos vêm em ``clientModelConfigs`` com o nome em ``label``; só entram os que
+    informam ``remainingFraction`` (a família Gemini do plano Pro informa apenas resetTime,
+    e ausência de fração não vira zero).
+    """
     user = payload.get("userStatus") or payload
-    configs = (user.get("cascadeModelConfigData") or {}).get("clientModelConfigs", [])
     out = []
-    for i, config in enumerate(configs):
-        quota = config.get("quotaInfo") or {}
-        fraction = number(quota.get("remainingFraction"))
-        if fraction is not None and 0 <= fraction <= 1:
-            label = text(config.get("modelLabel"), f"Modelo {i+1}")
-            out.append(metric("model:"+label, label, "quota", percent=(1-fraction)*100,
-                              reset=quota.get("resetTime")))
-    if out:
-        return out
     plan = user.get("planStatus") or {}
     info = plan.get("planInfo") or {}
-    for key, label in [("Prompt", "Créditos de prompts"), ("Flow", "Créditos de fluxo")]:
-        total, remaining = number(info.get(f"monthly{key}Credits")), number(plan.get(f"available{key}Credits"))
+    for key, label in (("Prompt", "Créditos de prompts"), ("Flow", "Créditos de fluxo")):
+        total = number(info.get(f"monthly{key}Credits"))
+        remaining = number(plan.get(f"available{key}Credits"))
         if total and total > 0 and remaining is not None:
-            out.append(metric(key, label, "quota", percent=100*(1-remaining/total)))
+            out.append(metric(key.lower(), label, "quota", percent=100 * (1 - remaining / total)))
+    configs = (user.get("cascadeModelConfigData") or {}).get("clientModelConfigs") or []
+    for index, config in enumerate(configs):
+        quota = config.get("quotaInfo") or {}
+        fraction = number(quota.get("remainingFraction"))
+        if fraction is None or not 0 <= fraction <= 1:
+            continue
+        name = (config.get("label") or config.get("modelLabel")
+                or (config.get("modelOrAlias") or {}).get("model"))
+        label = text(name, f"Modelo {index + 1}")
+        out.append(metric("model:" + label, label, "quota", percent=(1 - fraction) * 100,
+                          reset=quota.get("resetTime")))
     return out
 
 
-def antigravity():
+def antigravity(config=None):
     # Read only this user's process arguments in memory; never print CSRF tokens.
     candidate = None
     for directory in Path("/proc").glob("[0-9]*"):
@@ -407,9 +406,10 @@ def antigravity():
     raise Unavailable("Servidor local encontrado, mas não retornou cotas reconhecidas.")
 
 
-def collect_provider(id_, config):
+def collect_provider(id_, config=None):
+    config = config or {}
     try:
-        result = grok(config) if id_ == "grok" else globals()[id_]()
+        result = globals()[id_](config)
         if not result["metrics"]:
             raise Unavailable("Fonte não retornou métricas de uso reconhecidas.")
         return result

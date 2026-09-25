@@ -38,6 +38,8 @@ const context = {
                 constructor() { this.actor = new Actor(); this._applet_icon_box = new Actor(); }
                 setAllowedLayout() {}
                 set_applet_icon_path(path) { this.iconPath = path; }
+                set_applet_icon_symbolic_path(path) { this.iconPath = path; this.symbolic = true;
+                    this._applet_icon = new Actor(); }
                 set_applet_tooltip(text) { this.tooltip = text; }
             }, AllowedLayout: {BOTH: 1}, AppletPopupMenu: Menu },
             popupMenu: {PopupMenuManager: class { addMenu() {} }, PopupMenuItem: Item,
@@ -75,8 +77,9 @@ const first = subprocesses[0];
 first.output = JSON.stringify({schema_version: 1, generated_at: new Date().toISOString(), services: []});
 first.cb(first, {});
 assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
-assert(applet.iconPath.endsWith('/assets/robot-head.png'));
-for (const [percent, color] of [[69.9, 'transparent'], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
+assert(applet.iconPath.endsWith('/assets/robot-head-symbolic.svg'));
+assert(applet.symbolic); // Ícone simbólico herda a cor do tema.
+for (const [percent, color] of [[69.9, ''], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
     applet._snapshot.services = [
         {id: 'codex', label: 'Codex', status: 'ok', metrics: [
             {kind: 'quota', label: 'Semana', used_percent: percent},
@@ -90,11 +93,12 @@ for (const [percent, color] of [[69.9, 'transparent'], [70, '#e5a50a'], [89.9, '
         ]},
     ];
     applet._refreshIcon();
-    assert(applet._applet_icon_box.style.includes(color));
+    assert(applet._applet_icon.style.includes(color));
+    assert.equal(applet._applet_icon_box.style, undefined); // Sem borda: o alerta é a cor do robô.
     assert(applet.tooltip.includes(`Codex — Semana: ${percent.toFixed(1).replace('.', ',')}% usado`));
     assert(applet.tooltip.includes('Disponível: 999,00 USD'));
     assert(applet.tooltip.includes('(leitura antiga)'));
-    assert.equal(applet._recent().length, 0); // Alert includes quotas outside recent history.
+    assert.equal(applet._recent().length, 3); // Menu filled with what has a reading, not only usage.
 }
 applet._snapshot.services = [];
 applet._refreshIcon();
@@ -115,12 +119,31 @@ applet.on_applet_clicked();
 assert.equal(applet._click, 0);
 assert.equal(applet.menu.isOpen, false);
 assert(subprocesses.at(-1).argv.at(-1).endsWith('window.py'));
+applet._renderMenu();
+const credentialsItem = applet.menu.items.find(i => i.label && i.label.text === 'Credenciais…');
+assert(credentialsItem, 'menu deve oferecer Credenciais…');
+credentialsItem.activate();
+assert(subprocesses.at(-1).argv.at(-1).endsWith('credentials_window.py'));
 applet._snapshot.services = Array.from({length: 8}, (_,i) => ({id: String(i), status: 'ok',
     last_used_at: new Date(2026, 0, i+1).toISOString(), metrics: []}));
 assert.equal(applet._recent().length, 5);
 assert.equal(applet._recent()[0].id, '7');
 applet._snapshot.services[7].last_used_at = null;
 assert.equal(applet._recent()[0].id, '6');
+// Sem uso observado, o menu continua com cinco linhas, pelas leituras mais recentes.
+applet._snapshot.services = Array.from({length: 7}, (_,i) => ({id: String(i), status: 'ok',
+    read_at: new Date(2026, 1, i+1).toISOString(),
+    metrics: [{kind: 'balance', label: 'Saldo', value: 1, currency: 'USD'}]}));
+assert.equal(applet._recent().length, 5);
+assert.equal(applet._recent()[0].id, '6');
+assert.equal(applet._recent()[4].id, '2');
+// Quem não tem leitura não ocupa linha do menu.
+applet._snapshot.services.push({id: 'sem', status: 'unconfigured', metrics: []});
+assert(!applet._recent().some(s => s.id === 'sem'));
+assert.equal(applet._recent().length, 5);
+// Uso observado tem prioridade sobre leitura recente.
+applet._snapshot.services[0].last_used_at = new Date(2026, 3, 1).toISOString();
+assert.equal(applet._recent()[0].id, '0');
 applet._renderMenu();
 const menuBefore = applet.menu.items;
 applet.menu.isOpen = true;

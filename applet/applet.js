@@ -8,6 +8,9 @@ const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Clutter = imports.gi.Clutter;
 
+const WARNING_COLOR = '#e5a50a';
+const CRITICAL_COLOR = '#e01b24';
+
 class AIUsageApplet extends Applet.IconApplet {
     constructor(metadata, orientation, panelHeight, instanceId) {
         super(orientation, panelHeight, instanceId);
@@ -25,7 +28,9 @@ class AIUsageApplet extends Applet.IconApplet {
         this._backend = GLib.build_filenamev([metadata.path, 'backend']);
         if (!GLib.file_test(this._backend, GLib.FileTest.IS_DIR))
             this._backend = GLib.build_filenamev([metadata.path, '..', 'backend']);
-        this.set_applet_icon_path(GLib.build_filenamev([this._backend, '..', 'assets', 'robot-head.png']));
+        this._assets = GLib.build_filenamev([this._backend, '..', 'assets']);
+        // Ícone simbólico: herda a cor do tema e recebe a cor de alerta pela cota mais alta.
+        this.set_applet_icon_symbolic_path(GLib.build_filenamev([this._assets, 'robot-head-symbolic.svg']));
         this._menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this._menuManager.addMenu(this.menu);
@@ -133,18 +138,29 @@ class AIUsageApplet extends Applet.IconApplet {
         });
     }
 
+    _quotas(services) {
+        return services.filter(s => s.status === 'ok').flatMap(s =>
+            (s.metrics || []).filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent))
+                .map(m => ({service: s.label || s.id, metric: m})))
+            .sort((a, b) => b.metric.used_percent - a.metric.used_percent);
+    }
+
+    _paintIcon(highest) {
+        if (!this._applet_icon) return;
+        const color = highest >= 90 ? CRITICAL_COLOR : highest >= 70 ? WARNING_COLOR : '';
+        // Sem cor de alerta o ícone simbólico volta à cor do tema.
+        try {
+            this._applet_icon.set_style(color ? `color: ${color};` : '');
+        } catch (_) { /* tema sem suporte a cor de ícone */ }
+    }
+
     _refreshIcon() {
         if (this._stopped) return;
         const services = this._snapshot ? this._snapshot.services : [];
         const failed = services.filter(s => ['error', 'stale'].includes(s.status)).length;
-        const quotas = services.filter(s => s.status === 'ok').flatMap(s =>
-            (s.metrics || []).filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent))
-                .map(m => ({service: s.label || s.id, metric: m})));
-        quotas.sort((a, b) => b.metric.used_percent - a.metric.used_percent);
+        const quotas = this._quotas(services);
         const highest = quotas.length ? quotas[0].metric.used_percent : 0;
-        const color = highest >= 90 ? '#e01b24' : highest >= 70 ? '#e5a50a' : 'transparent';
-        // A PNG retains its original colors; the border carries the quota warning.
-        this._applet_icon_box.set_style(`border: 2px solid ${color}; border-radius: 5px; padding: 2px;`);
+        this._paintIcon(highest);
         const lines = ['Uso de IA'];
         for (const service of services.filter(s => s.status !== 'disabled')) {
             const metrics = service.metrics || [];
@@ -172,11 +188,25 @@ class AIUsageApplet extends Applet.IconApplet {
         this.set_applet_tooltip(lines.join('\n'));
     }
 
+    _hasReading(service) {
+        return ['ok', 'stale'].includes(service.status) ||
+            (Array.isArray(service.metrics) && service.metrics.length > 0);
+    }
+
+    _lastUsed(service) {
+        return typeof service.last_used_at === 'string' && Number.isFinite(Date.parse(service.last_used_at))
+            ? Date.parse(service.last_used_at) : null;
+    }
+
+    // Até cinco linhas: primeiro as com uso observado, depois as de leitura mais recente.
     _recent() {
         if (!this._snapshot) return [];
-        return this._snapshot.services.filter(s => s && s.status !== 'disabled' &&
-            typeof s.last_used_at === 'string' && Number.isFinite(Date.parse(s.last_used_at)))
-            .sort((a, b) => Date.parse(b.last_used_at) - Date.parse(a.last_used_at)).slice(0, 5);
+        const services = this._snapshot.services.filter(s => s && s.status !== 'disabled' && this._hasReading(s));
+        const used = services.filter(s => this._lastUsed(s) !== null)
+            .sort((a, b) => this._lastUsed(b) - this._lastUsed(a));
+        const rest = services.filter(s => this._lastUsed(s) === null)
+            .sort((a, b) => (Date.parse(b.read_at) || 0) - (Date.parse(a.read_at) || 0));
+        return used.concat(rest).slice(0, 5);
     }
 
     _note(label) {
@@ -187,16 +217,20 @@ class AIUsageApplet extends Applet.IconApplet {
 
     _renderMenu() {
         this.menu.removeAll();
-        this._note('Serviços recentes · atividade estimada');
+        this._note('Cinco mais recentes · uso estimado');
         if (!this.collectEnabled) this._note('Coleta automática pausada');
         if (this._proc) this._note('Atualizando… Reabra para ver a nova leitura.');
         if (this._error) this._note(this._error + ' Últimos valores preservados.');
         const recent = this._recent();
-        if (!recent.length) this._note('O histórico aparece após detectar uso.');
+        if (!recent.length) this._note('Sem leitura ainda; use Atualizar ou Ver todos.');
         for (const service of recent) this._serviceRow(service);
+        const pending = (this._snapshot ? this._snapshot.services : [])
+            .filter(s => ['unconfigured', 'unavailable'].includes(s.status)).length;
+        if (pending) this._note(`${pending} serviço(s) sem leitura; veja Credenciais…`);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._action('Ver todos os serviços…', () => this._openWindow());
         this._action('Atualizar', () => this._collect(true));
+        this._action('Credenciais…', () => this._openCredentials());
         this._action('Configurações…', () => {
             Gio.Subprocess.new(['xlet-settings', 'applet', this._uuid, '-i', String(this._instance)],
                                Gio.SubprocessFlags.NONE);
@@ -243,16 +277,28 @@ class AIUsageApplet extends Applet.IconApplet {
         }
         if (service.status !== 'ok') box.add_actor(new St.Label({text: service.status === 'stale' ?
             'Leitura antiga — ver detalhes' : 'Sem leitura atual', style_class: 'ai-usage-service-note'}));
+        else if (this._lastUsed(service) === null)
+            box.add_actor(new St.Label({text: 'Sem uso observado desde a instalação',
+                                       style_class: 'ai-usage-service-note'}));
         item.addActor(box, {expand: true, span: -1});
         this.menu.addMenuItem(item);
     }
 
     _openWindow() {
         this.menu.close();
+        this._runBackend('window.py', 'Não foi possível abrir a janela.');
+    }
+
+    _openCredentials() {
+        this.menu.close();
+        this._runBackend('credentials_window.py', 'Não foi possível abrir as credenciais.');
+    }
+
+    _runBackend(script, errorMessage) {
         try {
-            Gio.Subprocess.new(['/usr/bin/python3', GLib.build_filenamev([this._backend, 'window.py'])],
+            Gio.Subprocess.new(['/usr/bin/python3', GLib.build_filenamev([this._backend, script])],
                                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE);
-        } catch (_) { this._error = 'Não foi possível abrir a janela.'; this._refreshIcon(); }
+        } catch (_) { this._error = errorMessage; this._refreshIcon(); }
     }
 
     on_applet_removed_from_panel() {

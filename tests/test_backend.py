@@ -56,6 +56,15 @@ class ProviderTests(unittest.TestCase):
         self.assertTrue(all(m['kind'] == 'balance' and m['used_percent'] is None for m in got))
         self.assertEqual(got[1]['reset_at'], '2026-10-01T00:00:00Z')
 
+    def test_nous_equal_balances_are_one_line(self):
+        got = p.parse_nous({'subscription': {'current_period_end': '2026-10-22T21:17:20Z'},
+                            'paid_service_access': {'total_usable_credits': 21.09,
+                                                    'subscription_credits_remaining': 21.09,
+                                                    'purchased_credits_remaining': 0}})
+        self.assertEqual([m['id'] for m in got], ['total_usable_credits'])
+        self.assertEqual(got[0]['label'], 'Saldo total disponível')
+        self.assertEqual(got[0]['reset_at'], '2026-10-22T21:17:20Z')
+
     def test_go_observed_response_shape(self):
         got = p.parse_go({'usage': {'rolling': {'percent': 0, 'status': 'ok', 'resetsAt': '2026-10-01T00:00:00Z'},
                                   'weekly': {'percent': 30}, 'monthly': {'percent': None}}})
@@ -72,21 +81,65 @@ class ProviderTests(unittest.TestCase):
         self.assertTrue(all(m['window_seconds'] is None for m in got))
         self.assertIsNone(got[0]['reset_at'])
 
+    def test_antigravity_plan_credits_and_model_labels(self):
+        got = p.parse_antigravity({'userStatus': {
+            'planStatus': {'planInfo': {'planName': 'Pro', 'monthlyPromptCredits': 50000,
+                                        'monthlyFlowCredits': 150000},
+                           'availablePromptCredits': 500, 'availableFlowCredits': 300},
+            'cascadeModelConfigData': {'clientModelConfigs': [
+                {'label': 'Claude Sonnet 4.6 (Thinking)', 'quotaInfo': {'remainingFraction': 1,
+                                                                        'resetTime': '2026-10-02T23:25:43Z'}},
+                {'label': 'Gemini 3.1 Pro (High)', 'quotaInfo': {'resetTime': '2026-09-29T20:33:52Z'}}]}}})
+        self.assertEqual([m['id'] for m in got], ['prompt', 'flow', 'model:Claude Sonnet 4.6 (Thinking)'])
+        self.assertEqual([m['used_percent'] for m in got], [99, 99.8, 0])
+        self.assertEqual(got[2]['label'], 'Claude Sonnet 4.6 (Thinking)')
+        self.assertNotIn('Modelo', json.dumps(got, ensure_ascii=False))
+
     def test_exception_details_never_escape_provider(self):
         with patch.object(p, 'deepseek', side_effect=RuntimeError('Bearer TOP_SECRET')):
             result = p.collect_provider('deepseek', {})
         self.assertNotIn('TOP_SECRET', json.dumps(result))
         self.assertEqual(result['status'], 'error')
 
-    def test_credentials_not_shell_evaluated(self):
+    def test_credentials_file_is_chosen_by_config_not_hardcoded(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             (home/'.config/agentes').mkdir(parents=True)
-            (home/'.config/agentes/credenciais.env').write_text('KEY="$(touch should-not-exist)"\nOTHER=private\n')
+            (home/'.config/agentes/credenciais.env').write_text('KEY=do-caminho-antigo\n')
+            custom = home/'secrets.env'
+            custom.write_text('KEY="$(touch should-not-exist)"\nOTHER=private\n')
             with patch.object(Path, 'home', return_value=home):
-                result = p.credentials(['KEY'])
-            self.assertEqual(result, {'KEY': '$(touch should-not-exist)'})
+                # O programa não conhece o caminho antigo: sem configuração, nada é lido.
+                self.assertEqual(p.credentials.resolve(['KEY']), {})
+                config = {'credentials_path': str(custom)}
+                self.assertEqual(p.credentials.resolve(['KEY'], config), {'KEY': '$(touch should-not-exist)'})
             self.assertFalse((home/'should-not-exist').exists())
+
+    def test_credentials_order_keyring_then_file_then_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'secrets.env'
+            path.write_text('ALFA=do-arquivo\nBETA=do-arquivo\n')
+            config = {'credentials_path': str(path)}
+            with patch.object(p.credentials, 'keyring_get', side_effect=lambda n: 'do-cofre' if n == 'ALFA' else None), \
+                 patch.dict(os.environ, {'BETA': 'do-ambiente', 'GAMA': 'do-ambiente'}, clear=False):
+                got = p.credentials.resolve(['ALFA', 'BETA', 'GAMA'], config)
+            self.assertEqual(got, {'ALFA': 'do-cofre', 'BETA': 'do-arquivo', 'GAMA': 'do-ambiente'})
+
+    def test_missing_credential_is_unconfigured_not_zero(self):
+        with patch.object(p.credentials, 'resolve', return_value={}):
+            with self.assertRaises(p.Unavailable) as raised:
+                p.require_key('OPENROUTER_API_KEY', {})
+        self.assertEqual(raised.exception.status, 'unconfigured')
+
+    def test_oauth_token_is_found_at_any_json_level(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'auth.json'
+            path.write_text(json.dumps({'providers': {'nous': {'access_token': 'token-de-teste'}}}))
+            self.assertEqual(p.credentials.oauth_token('nous', {'token_files': {'nous': str(path)}}),
+                             'token-de-teste')
+            self.assertIsNone(p.credentials.oauth_token('nous', {}))
+            path.write_text('{broken')
+            self.assertIsNone(p.credentials.oauth_token('nous', {'token_files': {'nous': str(path)}}))
 
     def test_no_redirect_with_auth(self):
         with self.assertRaises(p.Unavailable):

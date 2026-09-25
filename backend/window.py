@@ -33,7 +33,8 @@ UI_WATCHDOG_SECONDS = 60  # watchdog da interface (contrato)
 
 BACKEND_DIR = Path(__file__).resolve().parent
 COLLECTOR_PATH = BACKEND_DIR / COLLECTOR_NAME
-ICON_PATH = BACKEND_DIR.parent / "assets" / "robot-head.png"
+CREDENTIALS_WINDOW = BACKEND_DIR / "credentials_window.py"
+ICON_PATH = BACKEND_DIR.parent / "assets" / "robot-head-symbolic.svg"
 
 # Assinatura de status aceita pelo contrato.
 STATUS_LABELS = {
@@ -364,6 +365,12 @@ class UsageWindow(Gtk.ApplicationWindow):
         self.refresh_button.set_tooltip_text("Atualizar agora (força nova coleta)")
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         header.pack_end(self.refresh_button)
+        self.credentials_button = Gtk.Button(label="Credenciais…")
+        self.credentials_button.set_tooltip_text(
+            "Chaves de API e caminhos de arquivo: guardadas no cofre do sistema"
+        )
+        self.credentials_button.connect("clicked", self._on_credentials_clicked)
+        header.pack_end(self.credentials_button)
         self.spinner = Gtk.Spinner()
         header.pack_start(self.spinner)
         self.set_titlebar(header)
@@ -484,6 +491,17 @@ class UsageWindow(Gtk.ApplicationWindow):
     def _on_refresh_clicked(self, _button):
         # Força nova coleta apenas a pedido do usuário (contrato).
         self._start_collection(["demo"] if self.demo else ["collect", "--force"])
+
+    def _on_credentials_clicked(self, _button):
+        # A janela de credenciais é um processo separado; esta janela não lê segredo algum.
+        try:
+            Gio.Subprocess.new(
+                [python_executable(), str(CREDENTIALS_WINDOW)],
+                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE,
+            )
+        except GLib.Error as exc:
+            self.error_label.set_text(f"Erro ao abrir as credenciais: {exc.message}")
+            self.error_bar.set_revealed(True)
 
     def _on_destroy(self, _widget=None):
         self._clear_watchdog()
