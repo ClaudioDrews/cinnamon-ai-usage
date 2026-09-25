@@ -308,7 +308,7 @@ def opencode(config=None):
 
 
 def grok(config):
-    key = require_key("XAI_MANAGEMENT_API_KEY")
+    key = require_key("XAI_MANAGEMENT_API_KEY", config)
     team = (config.get("grok") or {}).get("team_id", "")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(team)):
         raise Unavailable("Informe grok.team_id na configuração para consultar a API xAI.", "unconfigured")
@@ -316,8 +316,17 @@ def grok(config):
     total = number((payload.get("total") or {}).get("val"))
     if total is None:
         raise Unavailable("Saldo xAI não reconhecido.")
-    return service("grok", source="xAI Management API · não inclui assinatura Grok", identity=team,
-                   metrics=[metric("balance", "Saldo pré-pago da API", "balance", value=total/100, currency="USD")])
+    valor, aviso = total / 100, ""
+    if valor < 0:
+        # A documentação exemplifica total.val negativo (top-up de -1000 centavos) e não há
+        # resposta real verificada nesta máquina. Exibir "-12,34 USD" como saldo passaria por
+        # dívida; mostramos a magnitude e dizemos o que a API devolveu, sem decidir o sinal.
+        aviso = (f"A API xAI devolveu {valor:.2f} USD para o saldo; a magnitude é exibida e o "
+                 "sentido do sinal será confirmado na primeira leitura real.")
+        valor = abs(valor)
+    return service("grok", source="xAI Management API · não inclui assinatura Grok", message=aviso,
+                   identity=team,
+                   metrics=[metric("balance", "Saldo pré-pago da API", "balance", value=valor, currency="USD")])
 
 
 def parse_antigravity(payload):

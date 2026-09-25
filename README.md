@@ -71,6 +71,29 @@ Para serviços que autenticam por login, e não por chave, `token_files` aponta 
 
 Variáveis reconhecidas: `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `OPENCODE_GO_API_KEY` (ou `OPENCODE_API_KEY`), `XAI_MANAGEMENT_API_KEY` (saldo da API xAI; a chave de inferência não serve) e `NOUS_PORTAL_TOKEN`.
 
+### Chave da xAI (Grok)
+
+O saldo não está na chave de inferência: ele vive na **Management API**, que exige uma **management key** — uma credencial separada, criada em `console.x.ai` → *Settings* → *Management Keys*. Para criá-la e usá-la, o usuário da conta precisa da permissão `Management Keys` **Read + Write** na página *Users* do Console; sem ela o item não aparece e quem habilita é o administrador do time. Os ACLs (`api-key:model`, `api-key:endpoint`) valem para as chaves de inferência e não substituem essa permissão.
+
+O conector usa dois dados:
+
+- `XAI_MANAGEMENT_API_KEY` — a management key (Bearer). Coloque-a pelo botão **Credenciais…** do applet, que grava no cofre do sistema.
+- `grok.team_id` em `~/.config/cinnamon-ai-usage/config.json` — o identificador do time, visível na URL do Console (`console.x.ai/team/<team_id>/…`).
+
+Endpoints que interessam para um painel:
+
+| Uso | Endpoint |
+| --- | --- |
+| Saldo pré-pago e mudanças (usado hoje) | `GET /v1/billing/teams/{team_id}/prepaid/balance` |
+| Conferir se a chave é uma management key válida (não exige ACL) | `GET /auth/management-keys/validation` |
+| Gasto do período e teto vigente (dá percentual real) | `GET /v1/billing/teams/{team_id}/postpaid/invoice/preview` |
+| Limites de gasto configurados | `GET /v1/billing/teams/{team_id}/postpaid/spending-limits` |
+| Uso por modelo e período | `POST /v1/billing/teams/{team_id}/usage` |
+
+Base de todos: `https://management-api.x.ai`. O campo de saldo é `total.val`, em centavos de dólar. Como a documentação exemplifica esse campo com valor **negativo** e ainda não houve leitura real nesta máquina, o applet mostra a magnitude e diz, na nota do serviço, o que a API devolveu — em vez de exibir um saldo negativo com aparência de dívida. O sentido do sinal será fixado na primeira leitura real.
+
+A management key é uma credencial poderosa: ela cria e revoga chaves de API e mexe em cobrança. Guarde-a no cofre, não em arquivo versionado.
+
 Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
 
 Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.json`:

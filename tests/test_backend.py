@@ -95,6 +95,41 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(got[2]['label'], 'Claude Sonnet 4.6 (Thinking)')
         self.assertNotIn('Modelo', json.dumps(got, ensure_ascii=False))
 
+    def test_positive_balance_has_no_sign_notice(self):
+        value, message = self._snapshot_balance('1234')
+        self.assertEqual(value, 12.34)
+        self.assertEqual(message, '')
+
+    def test_grok_needs_team_id_and_a_configured_key(self):
+        with patch.object(p, 'request') as request:
+            missing_team = p.collect_provider('grok', {'credentials_path': self._key_file()})
+            self.assertEqual(missing_team['status'], 'unconfigured')
+            self.assertNotIn('XAI', json.dumps(missing_team))
+            request.assert_not_called()
+
+    def _key_file(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        path = Path(self._tmp.name)/'credenciais.env'
+        path.write_text('XAI_MANAGEMENT_API_KEY="chave-do-arquivo"\n')
+        return str(path)
+
+    def _snapshot_balance(self, val):
+        with patch.object(p, 'require_key', return_value='chave'), \
+             patch.object(p, 'request', return_value={'total': {'val': val}}):
+            result = p.grok({'grok': {'team_id': 'team-1'}})
+        return result['metrics'][0]['value'], result['message']
+
+    def test_grok_uses_key_from_configured_file_and_flags_negative_sign(self):
+        seen = {}
+        with patch.object(p, 'request') as request:
+            request.side_effect = lambda url, key, *a, **k: seen.update(url=url, key=key) or {'total': {'val': '-1234'}}
+            result = p.grok({'credentials_path': self._key_file(), 'grok': {'team_id': 'team-1'}})
+        self.assertEqual(seen['key'], 'chave-do-arquivo')
+        self.assertEqual(seen['url'], 'https://management-api.x.ai/v1/billing/teams/team-1/prepaid/balance')
+        self.assertEqual(result['metrics'][0]['value'], 12.34)
+        self.assertIn('-12.34', result['message'])
+
     def test_exception_details_never_escape_provider(self):
         with patch.object(p, 'deepseek', side_effect=RuntimeError('Bearer TOP_SECRET')):
             result = p.collect_provider('deepseek', {})
