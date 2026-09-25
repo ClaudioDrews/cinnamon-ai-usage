@@ -8,7 +8,7 @@ class Actor {
     constructor(props = {}) { Object.assign(this, props); this.children = []; }
     add_actor(a) { this.children.push(a); }
     add_style_class_name() {}
-    set_style() {}
+    set_style(style) { this.style = style; }
     set_child(a) { this.children = [a]; }
     connect(name, cb) { this[name] = cb; }
     get_width() { return this.width; }
@@ -35,8 +35,10 @@ const context = {
     imports: {
         ui: {
             applet: { IconApplet: class {
-                constructor() { this.actor = new Actor(); }
-                setAllowedLayout() {} set_applet_icon_symbolic_name() {} set_applet_tooltip() {}
+                constructor() { this.actor = new Actor(); this._applet_icon_box = new Actor(); }
+                setAllowedLayout() {}
+                set_applet_icon_path(path) { this.iconPath = path; }
+                set_applet_tooltip(text) { this.tooltip = text; }
             }, AllowedLayout: {BOTH: 1}, AppletPopupMenu: Menu },
             popupMenu: {PopupMenuManager: class { addMenu() {} }, PopupMenuItem: Item,
                 PopupBaseMenuItem: Item, PopupSeparatorMenuItem: Item},
@@ -73,6 +75,29 @@ const first = subprocesses[0];
 first.output = JSON.stringify({schema_version: 1, generated_at: new Date().toISOString(), services: []});
 first.cb(first, {});
 assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
+assert(applet.iconPath.endsWith('/assets/robot-head.png'));
+for (const [percent, color] of [[69.9, 'transparent'], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
+    applet._snapshot.services = [
+        {id: 'codex', label: 'Codex', status: 'ok', metrics: [
+            {kind: 'quota', label: 'Semana', used_percent: percent},
+            {kind: 'quota', label: '5 h', used_percent: 10},
+        ]},
+        {id: 'old', label: 'Antigo', status: 'stale', metrics: [
+            {kind: 'quota', label: 'Semana', used_percent: 100},
+        ]},
+        {id: 'cash', label: 'Saldo', status: 'ok', metrics: [
+            {kind: 'balance', label: 'Disponível', value: 999, currency: 'USD'},
+        ]},
+    ];
+    applet._refreshIcon();
+    assert(applet._applet_icon_box.style.includes(color));
+    assert(applet.tooltip.includes(`Codex — Semana: ${percent.toFixed(1).replace('.', ',')}% usado`));
+    assert(applet.tooltip.includes('Disponível: 999,00 USD'));
+    assert(applet.tooltip.includes('(leitura antiga)'));
+    assert.equal(applet._recent().length, 0); // Alert includes quotas outside recent history.
+}
+applet._snapshot.services = [];
+applet._refreshIcon();
 applet._serviceRow({id: 'test', status: 'ok', metrics: [
     {kind: 'quota', label: 'Cota', used_percent: 25},
 ]});

@@ -25,6 +25,7 @@ class AIUsageApplet extends Applet.IconApplet {
         this._backend = GLib.build_filenamev([metadata.path, 'backend']);
         if (!GLib.file_test(this._backend, GLib.FileTest.IS_DIR))
             this._backend = GLib.build_filenamev([metadata.path, '..', 'backend']);
+        this.set_applet_icon_path(GLib.build_filenamev([this._backend, '..', 'assets', 'robot-head.png']));
         this._menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this._menuManager.addMenu(this.menu);
@@ -136,15 +137,39 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._stopped) return;
         const services = this._snapshot ? this._snapshot.services : [];
         const failed = services.filter(s => ['error', 'stale'].includes(s.status)).length;
-        const quotas = services.filter(s => s.status === 'ok').flatMap(s => s.metrics || [])
-            .filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent));
-        const highest = Math.max(0, ...quotas.map(m => m.used_percent));
-        const icon = this._error || failed ? 'dialog-warning' : highest >= 90 ? 'battery-caution' : 'view-statistics';
-        this.set_applet_icon_symbolic_name(icon);
-        this.actor.set_style(highest >= 90 ? 'color: #e01b24;' : highest >= 70 ? 'color: #e5a50a;' : null);
-        const note = this._proc ? 'Atualizando…' : this._error ||
-            (failed ? `${failed} serviço(s) com falha ou leitura antiga` : 'Clique: recentes · clique duplo: todos');
-        this.set_applet_tooltip(`Uso de IA\n${note}`);
+        const quotas = services.filter(s => s.status === 'ok').flatMap(s =>
+            (s.metrics || []).filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent))
+                .map(m => ({service: s.label || s.id, metric: m})));
+        quotas.sort((a, b) => b.metric.used_percent - a.metric.used_percent);
+        const highest = quotas.length ? quotas[0].metric.used_percent : 0;
+        const color = highest >= 90 ? '#e01b24' : highest >= 70 ? '#e5a50a' : 'transparent';
+        // A PNG retains its original colors; the border carries the quota warning.
+        this._applet_icon_box.set_style(`border: 2px solid ${color}; border-radius: 5px; padding: 2px;`);
+        const lines = ['Uso de IA'];
+        for (const service of services.filter(s => s.status !== 'disabled')) {
+            const metrics = service.metrics || [];
+            const quota = metrics.filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent))
+                .sort((a, b) => b.used_percent - a.used_percent)[0];
+            const money = metrics.find(m => Number.isFinite(m.value));
+            let detail;
+            if (quota) detail = `${quota.label}: ${quota.used_percent.toFixed(1).replace('.', ',')}% usado`;
+            else if (money) detail = `${money.label}: ${money.value.toFixed(2).replace('.', ',')} ${money.currency || ''}`;
+            else detail = {unconfigured: 'Não configurado', unavailable: 'Indisponível',
+                          error: 'Falha na leitura'}[service.status] || 'Sem leitura';
+            if (metrics.length && service.status !== 'ok') detail += ' (leitura antiga)';
+            lines.push(`${service.label || service.id} — ${detail}`);
+        }
+        if (!services.length) lines.push('Aguardando a primeira leitura…');
+        if (highest >= 70) lines.push(`\n${highest >= 90 ? 'Cota crítica' : 'Atenção'}: ${quotas[0].service} · ${quotas[0].metric.label}`);
+        const generated = this._snapshot && this._snapshot.generated_at;
+        if (generated && Number.isFinite(Date.parse(generated)))
+            lines.push(`\nÚltima coleta: ${new Date(generated).toLocaleTimeString('pt-BR')}`);
+        if (!this.collectEnabled) lines.push('Coleta automática pausada');
+        if (this._proc) lines.push('Atualizando…');
+        if (this._error) lines.push(this._error);
+        if (failed) lines.push(`${failed} serviço(s) com falha ou leitura antiga`);
+        lines.push('\nClique: recentes · clique duplo: todos');
+        this.set_applet_tooltip(lines.join('\n'));
     }
 
     _recent() {

@@ -21,7 +21,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 
-from gi.repository import Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk, GdkPixbuf  # noqa: E402
 
 APP_ID = "local.claudio.CinnamonAIUsage"
 WINDOW_TITLE = "Uso de IA"
@@ -33,6 +33,7 @@ UI_WATCHDOG_SECONDS = 60  # watchdog da interface (contrato)
 
 BACKEND_DIR = Path(__file__).resolve().parent
 COLLECTOR_PATH = BACKEND_DIR / COLLECTOR_NAME
+ICON_PATH = BACKEND_DIR.parent / "assets" / "robot-head.png"
 
 # Assinatura de status aceita pelo contrato.
 STATUS_LABELS = {
@@ -352,10 +353,13 @@ class UsageWindow(Gtk.ApplicationWindow):
         self._watchdog_id = 0
         self._snapshot = None
         self._last_update = None
+        self.set_icon_from_file(str(ICON_PATH))
 
         header = Gtk.HeaderBar(show_close_button=True)
         header.set_title(WINDOW_TITLE)
         header.set_subtitle(WINDOW_SUBTITLE)
+        icon = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(ICON_PATH), 28, 28, True)
+        header.pack_start(Gtk.Image.new_from_pixbuf(icon))
         self.refresh_button = Gtk.Button.new_from_icon_name("view-refresh", Gtk.IconSize.BUTTON)
         self.refresh_button.set_tooltip_text("Atualizar agora (força nova coleta)")
         self.refresh_button.connect("clicked", self._on_refresh_clicked)

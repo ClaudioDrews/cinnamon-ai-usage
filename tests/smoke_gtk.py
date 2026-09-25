@@ -20,6 +20,7 @@ def verify():
             assert win.content.get_mapped()
             assert not win.collector.busy
             assert win.demo_bar.get_revealed()
+            assert win.get_icon() is not None
             if capture:
                 pixbuf = Gdk.pixbuf_get_from_window(win.get_window(), 0, 0, win.get_allocated_width(), win.get_allocated_height())
                 pixbuf.savev(capture, 'png', [], [])

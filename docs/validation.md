@@ -35,6 +35,14 @@ Em 25/09/2026, após pedido do usuário, instalamos e ativamos `ai-usage@claudio
 
 O applet permanece habilitado para uso. O menu real começa vazio até detectar mudança de consumo entre coletas; a janela completa já mostra os dados disponíveis. Imagens com dados reais não foram incorporadas ao repositório.
 
+## Feedback: balão e ícone de robô
+
+Em 25/09/2026, o PNG fornecido pelo usuário foi incorporado sem alterações em `assets/robot-head.png`. Instalador inclui o asset; painel, ícone da janela e cabeçalho GTK usam a mesma imagem. O alerta permanece como contorno amarelo (70% usado) ou vermelho (90%), sem substituir o robô. Considera todas as cotas válidas, excluindo leituras antigas e valores monetários sem percentual.
+
+O balão nativo agora apresenta o resumo de cada serviço, horário de coleta, estado de atualização e a cota responsável pelo aviso. A entrada real do ponteiro, simulada por XTest, confirmou o balão visível sem clique. Uma primeira sondagem sem garantir saída/entrada do ponteiro não o encontrou visível; a verificação com entrada explícita passou. Captura visual confirmou resumo e robô no painel; imagem real descartada após conferência.
+
+Teste JS cobre limites de 70/90%, cota fora do histórico recente, exclusão de leitura antiga do alerta e apresentação de saldo. Os 24 testes Python passam. Smoke GTK confirmou o ícone carregado, cabeçalho visível e encerramento limpo. Atualização instalada e recarregada somente no applet, mantendo a posição escolhida pelo usuário.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.

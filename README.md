@@ -3,11 +3,14 @@
 Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
 
 - **Clique simples:** até cinco serviços com atividade recente detectada.
+- **Passe o mouse:** balão com resumo por serviço, horário da coleta e avisos.
 - **Clique duplo:** janela completa, com todas as métricas disponíveis.
 - **Ver todos os serviços…:** alternativa visível ao clique duplo.
 - **Atualizar:** consulta manual. A atualização automática usa 120 segundos por padrão.
 
 O menu não muda de ordem enquanto estiver aberto. A janela usa o tema GTK do sistema, tem rolagem e separa os serviços sem leitura.
+
+O robô fornecido pelo usuário aparece no painel e na janela. Seu contorno fica amarelo a partir de **70% usado** e vermelho a partir de **90% usado**, considerando a maior porcentagem entre todas as janelas de todos os serviços com leitura válida, inclusive fora dos cinco recentes. O balão identifica a cota responsável. Saldos e gastos sem teto conhecido não acionam esse alerta; leituras antigas são identificadas no balão e excluídas do cálculo da cor. O PNG original é preservado em `assets/robot-head.png`.
 
 ## Estado da primeira versão
 

@@ -18,6 +18,7 @@ def install(destination):
         for name in ('applet.js', 'metadata.json', 'settings-schema.json', 'stylesheet.css'):
             shutil.copy2(ROOT/'applet'/name, stage/name)
         shutil.copytree(ROOT/'backend', stage/'backend', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        shutil.copytree(ROOT/'assets', stage/'assets')
         shutil.copy2(ROOT/'README.md', stage/'README.md')
         shutil.copy2(ROOT/'LICENSE', stage/'LICENSE')
         if target.exists() or target.is_symlink():
