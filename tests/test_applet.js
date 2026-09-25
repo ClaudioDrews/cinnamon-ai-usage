@@ -10,6 +10,9 @@ class Actor {
     add_style_class_name() {}
     set_style() {}
     set_child(a) { this.children = [a]; }
+    connect(name, cb) { this[name] = cb; }
+    get_width() { return this.width; }
+    set_width(width) { this.width = width; }
 }
 class Item {
     constructor(label, opts) { this.label = new Actor({text: label}); this.actor = new Actor(); }
@@ -70,6 +73,13 @@ const first = subprocesses[0];
 first.output = JSON.stringify({schema_version: 1, generated_at: new Date().toISOString(), services: []});
 first.cb(first, {});
 assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
+applet._serviceRow({id: 'test', status: 'ok', metrics: [
+    {kind: 'quota', label: 'Cota', used_percent: 25},
+]});
+const track = applet.menu.items.at(-1).actor.children[0].children[2];
+track.width = 413; // Theme allocation can exceed the requested 290 pixels.
+track['notify::allocation']();
+assert.equal(track.children[0].width / track.width, 0.25);
 applet.on_applet_clicked();
 assert.equal(applet.menu.isOpen, false);
 let cb = timers.get(applet._click); timers.delete(applet._click); cb();

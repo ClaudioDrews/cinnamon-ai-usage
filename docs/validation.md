@@ -21,7 +21,19 @@ Implementação local em Linux Mint 22.3, Cinnamon 6.6.9, Python 3.12 e CJS 115.
 - GTK real: janela de demonstração, sete serviços renderizados, consulta assíncrona finalizada, widgets visíveis e fechamento limpo.
 - Instalação em diretório temporário: primeira instalação, execução do backend instalado e atualização preservando cópia anterior.
 
-O teste JS usa substitutos das APIs para exercitar comportamento; não é uma carga do applet no processo Cinnamon. Uma tentativa de criar um palco Clutter isolado falhou com Unknown input backend no fork do Muffin; substituímos esse experimento por inspeção das APIs reais, sem afirmar teste visual do St. A ativação e interação no painel real permanecem pendentes. Não alteramos a lista de applets habilitados.
+O teste JS usa substitutos das APIs para exercitar comportamento. Uma tentativa anterior de criar um palco Clutter isolado falhou com Unknown input backend no fork do Muffin. A validação integrada abaixo foi feita posteriormente dentro do processo Cinnamon real.
+
+## Teste no painel real
+
+Em 25/09/2026, após pedido do usuário, instalamos e ativamos `ai-usage@claudio.local` no painel. A configuração anterior foi salva em `~/.local/share/cinnamon/ai-usage-backups/panel-before-20260925-190727.json`; a ativação acrescentou somente a nova instância e avançou o próximo identificador.
+
+- Carregamento confirmado pelo Cinnamon e cinco fontes com status OK na instância do painel; Antigravity indisponível e Grok sem configuração.
+- Eventos de mouse via XTest no ícone: clique simples abre/fecha o menu; duplo abre a janela GTK; outro duplo mantém uma única janela.
+- Menu com sete serviços sintéticos identificados como demonstração exibiu somente os cinco mais recentes. Captura visual e medidas dos atores confirmaram as barras; o snapshot real foi restaurado imediatamente, sem gravar a demonstração no cache.
+- Corrigidos dois problemas observados: estilo vazio gerava avisos do parser St (removido com `null`); largura pedida de 290 pixels podia ser ampliada pelo tema, distorcendo a proporção. O preenchimento agora acompanha a largura alocada. Barras de 25%, 33%, 41% e 57% ficaram dentro de 0,5 ponto percentual, incluindo arredondamento de pixels.
+- Recarregado somente o applet, sem reiniciar Cinnamon. Nenhum novo aviso do applet apareceu no log após as correções. Teste JS inclui regressão para a largura ampliada pelo tema; 24 testes Python continuaram passando.
+
+O applet permanece habilitado para uso. O menu real começa vazio até detectar mudança de consumo entre coletas; a janela completa já mostra os dados disponíveis. Imagens com dados reais não foram incorporadas ao repositório.
 
 ## Delegação e revisão
 

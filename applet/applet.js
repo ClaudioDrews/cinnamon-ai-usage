@@ -141,7 +141,7 @@ class AIUsageApplet extends Applet.IconApplet {
         const highest = Math.max(0, ...quotas.map(m => m.used_percent));
         const icon = this._error || failed ? 'dialog-warning' : highest >= 90 ? 'battery-caution' : 'view-statistics';
         this.set_applet_icon_symbolic_name(icon);
-        this.actor.set_style(highest >= 90 ? 'color: #e01b24;' : highest >= 70 ? 'color: #e5a50a;' : '');
+        this.actor.set_style(highest >= 90 ? 'color: #e01b24;' : highest >= 70 ? 'color: #e5a50a;' : null);
         const note = this._proc ? 'Atualizando…' : this._error ||
             (failed ? `${failed} serviço(s) com falha ou leitura antiga` : 'Clique: recentes · clique duplo: todos');
         this.set_applet_tooltip(`Uso de IA\n${note}`);
@@ -206,6 +206,10 @@ class AIUsageApplet extends Applet.IconApplet {
                     style_class: value >= 90 ? 'ai-usage-bar-fill-critical' :
                                  value >= 70 ? 'ai-usage-bar-fill-warning' : 'ai-usage-bar-fill'});
                 track.set_child(fill);
+                // Themes and display scaling may allocate more than the requested width.
+                track.connect('notify::allocation', () => {
+                    fill.set_width(track.get_width() * value / 100);
+                });
             }
             box.add_actor(track);
         } else if (m && Number.isFinite(m.value)) {
