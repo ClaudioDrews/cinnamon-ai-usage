@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'backend'))
 import window
+import providers
 from gi.repository import GLib, Gdk
 
 app = window.UsageApplication(unique=False, demo=True)
@@ -15,7 +16,7 @@ def verify():
     if win and win._snapshot:
         try:
             assert win._snapshot.get('demo') is True
-            assert len(win._snapshot['services']) == 7
+            assert len(win._snapshot['services']) == len(providers.SERVICES)
             assert win.get_child().get_visible()
             assert win.content.get_mapped()
             assert not win.collector.busy
@@ -24,7 +25,7 @@ def verify():
             if capture:
                 pixbuf = Gdk.pixbuf_get_from_window(win.get_window(), 0, 0, win.get_allocated_width(), win.get_allocated_height())
                 pixbuf.savev(capture, 'png', [], [])
-            print('GTK demo: 7 services rendered, async collector completed, widgets visible')
+            print(f'GTK demo: {len(providers.SERVICES)} services rendered, async collector completed, widgets visible')
             exit_code[0] = 0
         finally:
             win.destroy()

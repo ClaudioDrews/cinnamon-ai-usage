@@ -70,6 +70,21 @@ Com a management key e o `team_id` colocados pelo usuário no arquivo de credenc
 
 Verificado: 35 testes Python, `compileall`, smoke GTK da janela de credenciais (cinco campos de chave, origem de cada valor, `team_id` lido do arquivo, gravação 0600 em diretório temporário), consulta real dos sete provedores pelo coletor e menu do painel com Grok/xAI entre as cinco linhas, sem aviso novo no log. O Antigravity aparece como leitura antiga porque o servidor da IDE não estava no ar no momento da coleta.
 
+## Oitava fonte: a assinatura do Muse Code (Meta)
+
+Em 26/09/2026, a pedido do usuário, o applet passou a ler a assinatura do Muse Code. Antes de escrever o conector, a rota foi sondada com a credencial real da conta, em chamada única e com cópia de segurança do `auth.json`.
+
+O que a sondagem mostrou:
+
+- **Idempotência confirmada.** `POST https://api.meta.ai/muse-code/key` com o token OAuth devolveu HTTP 200 e a **mesma** `api_key` já guardada (sha256 idêntico), sem qualquer alteração no `auth.json` (bytes e mtime preservados). A chave continuou válida: `GET /muse-code/models` respondeu 200 com os quatro modelos depois da chamada.
+- **A quota vem no retorno:** `subs_usage.window` (percentual usado, duração da janela em minutos e `resets_at` em epoch) e `subs_usage.weekly` (percentual da semana), mais `tier`. Os horários de renovação vieram coerentes com o painel `/cost` do documento de análise. O struct tem dezesseis campos; a lista anterior de quinze estava incompleta (`base_url`, `payment_method` e `show_subs_upsell` ficaram de fora).
+- **Preço não é servido pela API.** `GET /muse-code/models` devolveu 3388 bytes e quatro modelos **sem nenhum campo de custo** (também sem resultado com `x-client-id: tbh:tui`, `?include=cost` e `?verbose=true`; a rota aceita apenas a chave de API, não o token OAuth). Sem preço verificável, o gasto em dólar saiu do escopo: a contagem de tokens não entra no contrato, que só conhece cota, saldo e gasto.
+- **Consumo local é agregável** caso se volte ao assunto: cada registro de uso nos arquivos `session.jsonl` do CLI traz `owner.run_id`, e o modelo de cada execução está em `run.model.configured`; os registros marcados com `reported: true` casaram com um modelo na varredura feita.
+
+O conector implementado faz uma coisa só: lê a assinatura, com intervalo mínimo próprio (`meta.min_interval_seconds`, padrão 900 s) e cache privado `~/.cache/cinnamon-ai-usage/meta.json` (0600, apenas o digest da conta). Dentro do intervalo não há nova chamada e a leitura reaproveitada mantém o `read_at` real, de modo que o applet a apresenta como leitura antiga quando passa o TTL. Sem login do Muse Code o serviço fica `unconfigured` e nenhuma chamada sai; falha de rede ou resposta sem percentual fica `error`/`unavailable`, nunca 0%.
+
+Verificado: 45 testes Python offline (10 novos só deste conector: duas janelas, percentual ausente, valor acima de 100 limitado na barra com o número real na nota, ausência de vazamento de credencial/conta na mensagem, POST com o token e o cabeçalho esperados, reaproveitamento dentro do intervalo, leitura vencida, limites do intervalo, falha sem zero inventado), `compileall`, `node --check`, teste JS do applet, teste CJS real, leitura real pelo `worker meta` (0,7 s na primeira chamada com rede, 0,06 s na segunda, sem rede) e conferência do arquivo de cache em 0600.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.

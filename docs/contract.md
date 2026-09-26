@@ -2,7 +2,7 @@
 
 Coletor: `python3 backend/collector.py collect [--force]`; imprime apenas JSON UTF-8. Sem argumentos usa collect. `read` devolve cache sem rede; `demo` devolve dados sintéticos SEM escrever cache. Janela: `python3 backend/window.py [--demo]`. Tudo funciona na árvore fonte e instalado: backend/ ao lado de applet/ na fonte; instalado o backend/ fica dentro do diretório do applet. Applet localiza backend/ dentro de metadata.path; instalação copia.
 
-Configuração não secreta: ~/.config/cinnamon-ai-usage/config.json. Cache privado: ~/.cache/cinnamon-ai-usage/snapshot.json. TTL padrão 120 segundos. IDs: codex, antigravity, grok, nous, opencode, deepseek, openrouter.
+Configuração não secreta: ~/.config/cinnamon-ai-usage/config.json. Cache privado: ~/.cache/cinnamon-ai-usage/snapshot.json. TTL padrão 120 segundos. IDs: codex, antigravity, grok, nous, opencode, deepseek, openrouter, meta.
 
 Saída exemplo (nenhum segredo):
 ```json
@@ -22,6 +22,14 @@ Janela GTK3: Gtk.Application id local.claudio.CinnamonAIUsage, instância única
 Ordem por variável, sempre sem shell: (1) cofre do sistema (Secret Service), onde a janela `credentials_window.py` grava o que a pessoa digita; (2) arquivo `NOME=VALOR` no caminho de `config.json:credentials_path`; (3) variáveis de ambiente. Serviços que autenticam por login usam `token_files` (JSON; primeiro `access_token` em qualquer nível). O programa não conhece caminho fixo de credencial de nenhuma máquina. Nenhum valor é impresso, registrado, exibido de volta ou escrito no cache; `config.json` guarda apenas caminhos, em modo 0600. Sem valor, o serviço fica `unconfigured`.
 
 A janela de credenciais é processo separado, mostra de onde cada valor viria, limpa o campo depois de salvar e oferece remover do cofre. A janela de uso não lê segredo: só abre a de credenciais.
+
+## Meta AI (Muse Code)
+
+O id `meta` lê a assinatura do aplicativo Muse Code — janela corrente (`window`, com `window_duration_mins`) e `weekly` —, não a cobrança por uso da API. A única fonte é `POST https://api.meta.ai/muse-code/key`, a mesma chamada que o cliente faz ao subir: ela emite credencial, mas é idempotente (verificado em 26/09/2026: devolve a mesma `api_key` e o `auth.json` do cliente fica intacto). O token vem do login do próprio Muse Code (`~/.config/muse/auth.json`, lido em qualquer nível do JSON; `token_files.meta` na configuração tem precedência); sem ele o serviço fica `unconfigured` e nenhuma chamada é feita.
+
+Como não há documentação de limite de uso, o conector impõe intervalo mínimo próprio: `meta.min_interval_seconds`, padrão 900 s, aceitando de 300 s a 24 h. Dentro do intervalo não há nova chamada: a leitura anterior é reaproveitada do cache privado `~/.cache/cinnamon-ai-usage/meta.json` (0600, só o digest da conta, nunca o token) e mantém o `read_at` real, de modo que o serviço aparece como leitura antiga quando passa o TTL. Falha de rede ou resposta sem percentual não viram zero: o serviço fica `error`/`unavailable` e o valor anterior é preservado.
+
+O percentual é inteiro e a Meta avisa que pode passar de 100: a barra vai até 100 e a nota do serviço informa o número relatado. Não há métrica de gasto em dólar para este serviço — a API de modelos não publica preço, e contagem de tokens sem preço não cabe neste contrato.
 
 ## Detalhes de implementação
 

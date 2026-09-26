@@ -1,5 +1,6 @@
 """Offline regression tests: provider meaning, history, cache and secret isolation."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -203,6 +204,111 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(p.Unavailable):
             p.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://evil.invalid')
 
+    def _meta_payload(self, window=3, weekly=1, minutes=300):
+        return {'subs_tier_name': 'Muse Code Everyday Usage',
+                'subs_usage': {'window': {'used_percent': window, 'window_duration_mins': minutes,
+                                          'resets_at': 1790443036},
+                               'weekly': {'used_percent': weekly, 'resets_at': 1790553600},
+                               'tier': '27681393394859588'},
+                'api_key': 'nunca-deve-sair', 'user_email': 'pessoa@exemplo.invalid'}
+
+    def _meta_tmp(self, name='meta-tmp'):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return directory.name
+
+    def _meta_login(self, token='token-de-teste'):
+        path = Path(self._meta_tmp())/'auth.json'
+        path.write_text(json.dumps({'providers': {'meta': {'access_token': token, 'api_key': 'chave-x'}}}))
+        return str(path)
+
+    def test_meta_windows_come_from_the_subscription_snapshot(self):
+        got = p.parse_meta(self._meta_payload())
+        self.assertEqual([m['id'] for m in got], ['janela', 'semanal'])
+        self.assertEqual([m['label'] for m in got], ['Janela de 5 h', 'Semana'])
+        self.assertEqual([m['used_percent'] for m in got], [3, 1])
+        self.assertEqual([m['window_seconds'] for m in got], [18000, 604800])
+        self.assertTrue(all(m['kind'] == 'quota' for m in got))
+        self.assertEqual(got[0]['reset_at'], p.stamp(1790443036))
+
+    def test_meta_missing_percent_is_not_zero(self):
+        self.assertEqual(p.parse_meta({}), [])
+        self.assertEqual(p.parse_meta({'subs_usage': {'window': {'window_duration_mins': 300}}}), [])
+        self.assertEqual(p.parse_meta({'subs_usage': {'window': {'used_percent': None}, 'weekly': {}}}), [])
+
+    def test_meta_above_hundred_clamps_the_bar_and_keeps_the_real_number_in_the_note(self):
+        payload = self._meta_payload(window=140)
+        self.assertEqual(p.parse_meta(payload)[0]['used_percent'], 100)
+        nota = p.meta_message(payload)
+        self.assertIn('140%', nota)
+        self.assertIn('Muse Code Everyday Usage', nota)
+
+    def test_meta_note_never_leaks_credential_or_account(self):
+        nota = p.meta_message(self._meta_payload())
+        self.assertNotIn('nunca-deve-sair', nota)
+        self.assertNotIn('exemplo.invalid', nota)
+
+    def test_meta_without_login_is_unconfigured_and_does_not_call(self):
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': self._meta_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            result = p.collect_provider('meta', {})
+        self.assertEqual(result['status'], 'unconfigured')
+        request.assert_not_called()
+
+    def test_meta_posts_the_key_call_with_the_oauth_token(self):
+        seen = {}
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._meta_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            request.side_effect = lambda url, token=None, **k: seen.update(
+                url=url, token=token, data=k.get('data'), headers=k.get('headers')) or self._meta_payload()
+            result = p.meta({'token_files': {'meta': self._meta_login()}})
+        self.assertEqual(seen['url'], p.META_KEY_URL)
+        self.assertEqual(seen['token'], 'token-de-teste')
+        self.assertEqual(seen['data'], {})  # corpo presente: POST, e não GET
+        self.assertEqual(seen['headers'], {'x-client-id': 'tbh:tui'})
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual([m['used_percent'] for m in result['metrics']], [3, 1])
+
+    def test_meta_reuses_the_reading_inside_the_interval(self):
+        cache = self._meta_tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
+             patch.object(p, 'request') as request:
+            request.side_effect = lambda *a, **k: self._meta_payload()
+            config = {'token_files': {'meta': self._meta_login()}}
+            first = p.meta(config)
+            segunda = p.meta(config)
+        self.assertEqual(request.call_count, 1)  # a segunda leitura não chamou de novo
+        self.assertEqual(segunda['read_at'], first['read_at'])  # horário real, sem frescor inventado
+        self.assertEqual([m['used_percent'] for m in segunda['metrics']], [3, 1])
+        self.assertIn('reaproveitada', segunda['message'])
+        arquivo = Path(cache)/'cinnamon-ai-usage'/'meta.json'
+        self.assertEqual(stat.S_IMODE(arquivo.stat().st_mode), 0o600)
+        texto = arquivo.read_text()
+        self.assertIn(hashlib.sha256(b'token-de-teste').hexdigest(), texto)  # só o digest da conta
+        self.assertNotIn('token-de-teste', texto)  # nunca o token
+
+    def test_meta_expired_reading_is_refreshed(self):
+        cache = self._meta_tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False):
+            path = Path(cache)/'cinnamon-ai-usage'
+            path.mkdir(parents=True)
+            (path/'meta.json').write_text(json.dumps(
+                {'read_at': '2026-09-26T00:00:00Z', 'identity': 'x', 'metrics': [{'id': 'janela'}]}))
+            self.assertIsNone(p.meta_read_cache({}, 'x'))  # antiga: será consultada de novo
+
+    def test_meta_interval_has_floor_and_ceiling(self):
+        self.assertEqual(p.meta_interval({}), 900)
+        self.assertEqual(p.meta_interval({'meta': {'min_interval_seconds': 60}}), 300)
+        self.assertEqual(p.meta_interval({'meta': {'min_interval_seconds': 999999}}), 86400)
+        self.assertEqual(p.meta_interval({'meta': {'min_interval_seconds': 1800}}), 1800)
+
+    def test_meta_http_failure_is_error_without_inventing_zero(self):
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._meta_tmp()}, clear=False), \
+             patch.object(p, 'request', side_effect=p.Unavailable('Credencial recusada.', 'error')):
+            result = p.collect_provider('meta', {'token_files': {'meta': self._meta_login()}})
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['metrics'], [])
+
 
 class HistoryTests(unittest.TestCase):
     def setUp(self):
@@ -283,7 +389,7 @@ class CacheTests(unittest.TestCase):
             with patch.object(c, 'paths', return_value=(cache, config)), patch.object(c.subprocess, 'Popen') as spawn:
                 got = c.collect(True)
                 spawn.assert_not_called()
-            self.assertEqual(len(got['services']), 7)
+            self.assertEqual(len(got['services']), len(p.SERVICES))
             self.assertTrue(all(s['status']=='disabled' for s in got['services']))
 
     def test_valid_ttl_avoids_spawning(self):

@@ -164,6 +164,11 @@ def demo():
             metrics = [metric("balance", "Saldo disponível", "balance", value=12.4+i, currency="USD")]
         elif id_ == "openrouter":
             metrics = [metric("usage_monthly", "Gasto no mês", "spend", value=4.02, currency="USD")]
+        elif id_ == "meta":
+            metrics = [metric("janela", "Janela de 5 h", "quota", percent=12, window=18000,
+                              reset=time.time()+3600),
+                       metric("semanal", "Semana", "quota", percent=45, window=604800,
+                              reset=time.time()+86400)]
         else:
             metrics = [metric("primary", "Janela de 5 h" if id_ != "antigravity" else "Modelo de exemplo",
                        "quota", percent=25+i*8, window=18000 if id_ != "antigravity" else None,

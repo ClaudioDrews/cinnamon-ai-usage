@@ -11,6 +11,7 @@ import selectors
 import shutil
 import ssl
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler, ProxyHandler
@@ -21,8 +22,14 @@ import credentials
 SERVICES = {
     "codex": "Codex", "antigravity": "Antigravity", "grok": "Grok / xAI",
     "nous": "Nous Portal", "opencode": "OpenCode Go", "deepseek": "DeepSeek",
-    "openrouter": "OpenRouter",
+    "openrouter": "OpenRouter", "meta": "Meta AI (Muse Code)",
 }
+
+# A assinatura da Meta só é legível pela chamada que emite credencial do Muse Code; ela é
+# idempotente (verificado em 26/09/2026: mesma api_key devolvida e auth.json intacto), mas
+# não há documentação de limite de uso, então o conector impõe intervalo mínimo próprio.
+META_KEY_URL = "https://api.meta.ai/muse-code/key"
+META_MIN_INTERVAL = 900
 
 
 class Unavailable(Exception):
@@ -434,6 +441,127 @@ def antigravity(config=None):
                 except Unavailable:
                     continue
     raise Unavailable("Servidor local encontrado, mas não retornou cotas reconhecidas.")
+
+
+def meta_login_path(config=None):
+    """Arquivo de login do Muse Code, o mesmo que o CLI grava (como o auth.json do Codex)."""
+    declared = ((config or {}).get("token_files") or {}).get("meta")
+    if declared:
+        return Path(os.path.expanduser(str(declared)))
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home()/".config")
+    return Path(base)/"muse"/"auth.json"
+
+
+def meta_interval(config=None):
+    """Intervalo mínimo entre chamadas de assinatura, em segundos (300 s a 24 h)."""
+    value = number(((config or {}).get("meta") or {}).get("min_interval_seconds"))
+    return max(300, min(86400, value)) if value else META_MIN_INTERVAL
+
+
+def meta_cache_path():
+    cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home()/".cache")
+    return Path(cache)/"cinnamon-ai-usage"/"meta.json"
+
+
+def meta_read_cache(config, identity):
+    """Leitura anterior da assinatura, se for da mesma conta e ainda válida."""
+    data = read_json(meta_cache_path())
+    if not isinstance(data, dict) or data.get("identity") != identity:
+        return None
+    metrics, read_at = data.get("metrics"), data.get("read_at")
+    if not isinstance(metrics, list) or not metrics or not isinstance(read_at, str):
+        return None
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(read_at.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+    if age.total_seconds() < meta_interval(config):
+        return read_at, metrics
+    return None
+
+
+def meta_write_cache(identity, read_at, metrics):
+    """Guarda a última leitura em arquivo privado; só o digest da conta, nunca o token."""
+    path = meta_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(path.parent, 0o700)
+        fd, name = tempfile.mkstemp(prefix=".meta-", dir=path.parent)
+        with os.fdopen(fd, "w") as f:
+            json.dump({"read_at": read_at, "identity": identity, "metrics": metrics}, f)
+            f.flush(); os.fsync(f.fileno())
+        os.chmod(name, 0o600)
+        os.replace(name, path)
+    except OSError:
+        pass
+
+
+def parse_meta(payload):
+    """As duas janelas da assinatura Muse Code.
+
+    ``subs_usage.window`` traz ``used_percent`` inteiro, ``window_duration_mins`` e
+    ``resets_at`` em epoch; ``weekly`` traz ``used_percent`` e ``resets_at``. A Meta avisa que
+    o percentual pode passar de 100: a barra vai até 100 e a nota do serviço informa o valor
+    relatado. Percentual ausente não vira zero, e nada aqui é teto de cobrança por uso — é a
+    assinatura do aplicativo.
+    """
+    usage = payload.get("subs_usage") or {}
+    out = []
+    window = usage.get("window") or {}
+    percent = number(window.get("used_percent"))
+    if percent is not None:
+        minutes = number(window.get("window_duration_mins"))
+        out.append(metric("janela", f"Janela de {minutes/60:g} h" if minutes else "Janela atual",
+                          "quota", percent=percent,
+                          window=int(minutes*60) if minutes and minutes > 0 else None,
+                          reset=window.get("resets_at")))
+    weekly = usage.get("weekly") or {}
+    percent = number(weekly.get("used_percent"))
+    if percent is not None:
+        out.append(metric("semanal", "Semana", "quota", percent=percent, window=604800,
+                          reset=weekly.get("resets_at")))
+    return out
+
+
+def meta_message(payload):
+    """Nota pública do serviço: plano, aviso de percentual acima de 100% e origem do dado."""
+    usage = payload.get("subs_usage") or {}
+    partes = ["Assinatura do aplicativo; não é a cobrança por uso da API."]
+    plano = text(payload.get("subs_tier_name"), "")
+    if plano:
+        partes.append(f"Plano: {plano}.")
+    relatado = [number((usage.get(k) or {}).get("used_percent")) for k in ("window", "weekly")]
+    acima = [p for p in relatado if p is not None and p > 100]
+    if acima:
+        partes.append(f"A Meta relatou {max(acima):g}% de uso; a barra do applet vai até 100%.")
+    return " ".join(partes)
+
+
+def meta(config=None):
+    config = config or {}
+    path = meta_login_path(config)
+    token = credentials.oauth_token("meta", {"token_files": {"meta": str(path)}})
+    if not token:
+        raise Unavailable("Login do Muse Code não encontrado; rode `muse login` para ler a "
+                          "assinatura da Meta.", "unconfigured")
+    identity = hashlib.sha256(token.encode()).hexdigest()
+    source = "Muse Code · assinatura da Meta"
+    cached = meta_read_cache(config, identity)
+    if cached:
+        read_at, metrics = cached
+        result = service("meta", source=source, metrics=metrics, identity=identity,
+                         message="Leitura reaproveitada; a assinatura é consultada respeitando um "
+                                 "intervalo mínimo entre chamadas.")
+        # Não inventar frescor: o applet passa a mostrar a leitura como antiga pelo horário real.
+        result["read_at"] = read_at
+        return result
+    payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
+    read_at = stamp()
+    metrics = parse_meta(payload)
+    if metrics:
+        meta_write_cache(identity, read_at, metrics)
+    return service("meta", source=source, metrics=metrics, identity=identity,
+                   message=meta_message(payload))
 
 
 def collect_provider(id_, config=None):

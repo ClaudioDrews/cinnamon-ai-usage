@@ -26,8 +26,9 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 | OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; chave local sem limite |
 | Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: dois créditos e três modelos |
 | Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
+| Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada OK: janela corrente e semanal, com percentuais e horários de renovação |
 
-O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero.
+O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta.
 
 [Prévia da janela com dados fictícios](docs/demo.png)
 
@@ -96,7 +97,18 @@ Quando houver consumo de crédito pré-pago, a segunda linha do serviço mostra 
 
 A management key é uma credencial poderosa: ela cria e revoga chaves de API e mexe em cobrança. Guarde-a no cofre, não em arquivo versionado.
 
-Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
+Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, e o Muse Code usa o dele (`muse login`) em `~/.config/muse/auth.json`; nenhum dos dois aparece na janela de credenciais, porque o arquivo é encontrado pelo caminho padrão do próprio aplicativo. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
+
+### Assinatura do Muse Code (Meta)
+
+A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `used_percent` no arquivo local — o painel `/cost` vive só na memória do cliente. O que funciona é a chamada que o próprio cliente faz ao subir, `POST https://api.meta.ai/muse-code/key`, com o token OAuth do `muse login`. Ela devolve `subs_usage` com a janela corrente (`used_percent`, `window_duration_mins`, `resets_at` em epoch) e a semanal.
+
+Duas coisas que você deve saber antes de habilitar:
+
+- A chamada **emite credencial**, e não apenas lê. Verificamos em 26/09/2026 que ela é **idempotente**: devolve exatamente a mesma `api_key` que o cliente já guarda, sem tocar no `auth.json`. Nada foi rotacionado e o CLI continuou funcionando.
+- Mesmo assim o applet consulta no máximo a cada 15 minutos (`meta.min_interval_seconds`), guarda a última leitura em cache privado e mostra o horário real dela. Entre uma consulta e outra a linha aparece como leitura antiga, com o aviso — é intencional: preferimos um dado velho identificado a martelar uma rota sem documentação de limite.
+
+A linha mostra percentual das duas janelas. Não há gasto em dólar para este serviço: a API de modelos não publica preços, e inventar denominador é justamente o que este projeto evita.
 
 Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.json`:
 
@@ -106,9 +118,12 @@ Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.
   "credentials_path": "~/.config/secrets.env",
   "token_files": {"nous": "~/.local/share/meu-login/auth.json"},
   "enabled": {"grok": false},
-  "grok": {"team_id": "SEU_TEAM_ID"}
+  "grok": {"team_id": "SEU_TEAM_ID"},
+  "meta": {"min_interval_seconds": 900}
 }
 ```
+
+`token_files.meta` só é necessário se o login do Muse Code estiver fora do caminho padrão (`~/.config/muse/auth.json`).
 
 A gravação do arquivo é atômica e em modo 0600. O intervalo selecionado no applet vale para suas consultas. A janela independente usa o TTL do arquivo acima (120 segundos se ausente). O botão Atualizar força a coleta em ambos. Desativar um provedor no arquivo o remove das próximas coletas; uma alteração pode aguardar o TTL ou Atualizar.
 
