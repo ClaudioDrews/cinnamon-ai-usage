@@ -26,6 +26,7 @@ Codex · Claude Code · Antigravity · Grok / xAI · Nous Portal · OpenCode Go 
 - Interface in English and Português (Brasil); follows your session language.
 - Automatic refresh every 2 minutes (configurable); Update forces one now.
 - Needs only what Mint already ships: Cinnamon, Python 3 and the GTK bindings.
+- **First run:** nothing configured yet? The menu itself says how many services have no reading and points to **Credentials…**, the window where keys are entered.
 
 [Source code and full documentation](https://github.com/ClaudioDrews/cinnamon-ai-usage) · [Report an issue](https://github.com/ClaudioDrews/cinnamon-ai-usage/issues) · [Leia em português](https://github.com/ClaudioDrews/cinnamon-ai-usage/blob/main/spice/README.pt-BR.md)
 
