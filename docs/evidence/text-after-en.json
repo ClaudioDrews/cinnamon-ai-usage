@@ -1,0 +1,228 @@
+{
+ "demo": [
+  {
+   "id": "codex",
+   "label": "Codex",
+   "message": "",
+   "metricas": [
+    {
+     "id": "primary",
+     "kind": "quota",
+     "label": "5 h window"
+    },
+    {
+     "id": "secondary",
+     "kind": "quota",
+     "label": "Week"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "claude",
+   "label": "Claude Code",
+   "message": "",
+   "metricas": [
+    {
+     "id": "five_hour",
+     "kind": "quota",
+     "label": "5 h window"
+    },
+    {
+     "id": "seven_day",
+     "kind": "quota",
+     "label": "Week"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "antigravity",
+   "label": "Antigravity",
+   "message": "",
+   "metricas": [
+    {
+     "id": "model:exemplo",
+     "kind": "quota",
+     "label": "Example model"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "grok",
+   "label": "Grok / xAI",
+   "message": "",
+   "metricas": [
+    {
+     "id": "balance:USD",
+     "kind": "balance",
+     "label": "API prepaid balance"
+    },
+    {
+     "id": "credits_used",
+     "kind": "quota",
+     "label": "Prepaid credits used"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "nous",
+   "label": "Nous Portal",
+   "message": "",
+   "metricas": [
+    {
+     "id": "total_usable_credits",
+     "kind": "balance",
+     "label": "Total available balance"
+    },
+    {
+     "id": "subscription_credits_remaining",
+     "kind": "balance",
+     "label": "Plan balance"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "opencode",
+   "label": "OpenCode Go",
+   "message": "",
+   "metricas": [
+    {
+     "id": "rolling",
+     "kind": "quota",
+     "label": "Rolling window"
+    },
+    {
+     "id": "weekly",
+     "kind": "quota",
+     "label": "Week"
+    },
+    {
+     "id": "monthly",
+     "kind": "quota",
+     "label": "Month"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "deepseek",
+   "label": "DeepSeek",
+   "message": "",
+   "metricas": [
+    {
+     "id": "balance:USD",
+     "kind": "balance",
+     "label": "Available balance"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "openrouter",
+   "label": "OpenRouter",
+   "message": "",
+   "metricas": [
+    {
+     "id": "usage_monthly",
+     "kind": "spend",
+     "label": "Monthly spend"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  },
+  {
+   "id": "meta",
+   "label": "Meta AI (Muse Code)",
+   "message": "",
+   "metricas": [
+    {
+     "id": "janela",
+     "kind": "quota",
+     "label": "5 h window"
+    },
+    {
+     "id": "semanal",
+     "kind": "quota",
+     "label": "Week"
+    }
+   ],
+   "source": "Simulation — no real data",
+   "status": "ok"
+  }
+ ],
+ "diagnosticos": {
+  "claude": {
+   "arquivo_existe": false,
+   "credencial": "not found",
+   "origem_do_caminho": "default"
+  },
+  "meta": {
+   "arquivo_existe": false,
+   "credencial": "not found",
+   "origem_do_caminho": "default"
+  }
+ },
+ "idioma": "en",
+ "sem_config": {
+  "notice": null,
+  "servicos": [
+   {
+    "id": "codex",
+    "message": "",
+    "status": "ok"
+   },
+   {
+    "id": "claude",
+    "message": "Claude Code login not found; run `claude` and use /login.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "antigravity",
+    "message": "Open Antigravity to consult the local quotas.",
+    "status": "unavailable"
+   },
+   {
+    "id": "grok",
+    "message": "xAI management key not configured.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "nous",
+    "message": "Nous Portal token not configured.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "opencode",
+    "message": "OpenCode Go key not configured.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "deepseek",
+    "message": "Credentials not configured.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "openrouter",
+    "message": "Credentials not configured.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "meta",
+    "message": "Muse Code login not found; run `muse login` to read the Meta subscription.",
+    "status": "unconfigured"
+   }
+  ]
+ }
+}

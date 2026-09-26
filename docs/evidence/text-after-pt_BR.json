@@ -1,0 +1,228 @@
+{
+ "demo": [
+  {
+   "id": "codex",
+   "label": "Codex",
+   "message": "",
+   "metricas": [
+    {
+     "id": "primary",
+     "kind": "quota",
+     "label": "Janela de 5 h"
+    },
+    {
+     "id": "secondary",
+     "kind": "quota",
+     "label": "Semana"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "claude",
+   "label": "Claude Code",
+   "message": "",
+   "metricas": [
+    {
+     "id": "five_hour",
+     "kind": "quota",
+     "label": "Janela de 5 h"
+    },
+    {
+     "id": "seven_day",
+     "kind": "quota",
+     "label": "Semana"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "antigravity",
+   "label": "Antigravity",
+   "message": "",
+   "metricas": [
+    {
+     "id": "model:exemplo",
+     "kind": "quota",
+     "label": "Modelo de exemplo"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "grok",
+   "label": "Grok / xAI",
+   "message": "",
+   "metricas": [
+    {
+     "id": "balance:USD",
+     "kind": "balance",
+     "label": "Saldo pré-pago da API"
+    },
+    {
+     "id": "credits_used",
+     "kind": "quota",
+     "label": "Créditos pré-pagos usados"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "nous",
+   "label": "Nous Portal",
+   "message": "",
+   "metricas": [
+    {
+     "id": "total_usable_credits",
+     "kind": "balance",
+     "label": "Saldo total disponível"
+    },
+    {
+     "id": "subscription_credits_remaining",
+     "kind": "balance",
+     "label": "Saldo do plano"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "opencode",
+   "label": "OpenCode Go",
+   "message": "",
+   "metricas": [
+    {
+     "id": "rolling",
+     "kind": "quota",
+     "label": "Janela móvel"
+    },
+    {
+     "id": "weekly",
+     "kind": "quota",
+     "label": "Semana"
+    },
+    {
+     "id": "monthly",
+     "kind": "quota",
+     "label": "Mês"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "deepseek",
+   "label": "DeepSeek",
+   "message": "",
+   "metricas": [
+    {
+     "id": "balance:USD",
+     "kind": "balance",
+     "label": "Saldo disponível"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "openrouter",
+   "label": "OpenRouter",
+   "message": "",
+   "metricas": [
+    {
+     "id": "usage_monthly",
+     "kind": "spend",
+     "label": "Gasto no mês"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  },
+  {
+   "id": "meta",
+   "label": "Meta AI (Muse Code)",
+   "message": "",
+   "metricas": [
+    {
+     "id": "janela",
+     "kind": "quota",
+     "label": "Janela de 5 h"
+    },
+    {
+     "id": "semanal",
+     "kind": "quota",
+     "label": "Semana"
+    }
+   ],
+   "source": "Simulação — nenhum dado real",
+   "status": "ok"
+  }
+ ],
+ "diagnosticos": {
+  "claude": {
+   "arquivo_existe": false,
+   "credencial": "não encontrada",
+   "origem_do_caminho": "padrão"
+  },
+  "meta": {
+   "arquivo_existe": false,
+   "credencial": "não encontrada",
+   "origem_do_caminho": "padrão"
+  }
+ },
+ "idioma": "pt_BR",
+ "sem_config": {
+  "notice": null,
+  "servicos": [
+   {
+    "id": "codex",
+    "message": "",
+    "status": "ok"
+   },
+   {
+    "id": "claude",
+    "message": "Login do Claude Code não encontrado; rode `claude` e faça /login.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "antigravity",
+    "message": "Abra o Antigravity para consultar as cotas locais.",
+    "status": "unavailable"
+   },
+   {
+    "id": "grok",
+    "message": "Chave de gerenciamento da xAI não configurada.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "nous",
+    "message": "Token do Nous Portal não configurado.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "opencode",
+    "message": "Chave OpenCode Go não configurada.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "deepseek",
+    "message": "Credencial não configurada.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "openrouter",
+    "message": "Credencial não configurada.",
+    "status": "unconfigured"
+   },
+   {
+    "id": "meta",
+    "message": "Login do Muse Code não encontrado; rode `muse login` para ler a assinatura da Meta.",
+    "status": "unconfigured"
+   }
+  ]
+ }
+}
