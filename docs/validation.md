@@ -238,6 +238,20 @@ chamada passou a carregar, ou variação entre chamadas, **não está provado** 
 aparece como leitura antiga por falha, com a leitura de 16:59:16Z preservada; nenhum número foi
 inventado e nenhuma barra ficou cheia.
 
+## Internacionalização (26/09/2026)
+
+A prosa visível ao usuário saiu do código para um catálogo gettext único, cujo domínio é o uuid do applet (`ai-usage@claudio.drews`): o mesmo catálogo cobre o painel, as duas janelas GTK, o instalador e o nome e a descrição do xlet nas telas do Cinnamon. Os msgids são escritos em inglês e o pt_BR é o catálogo de tradução; sem `.mo` instalado a interface degrada para inglês, nunca para um idioma sem catálogo.
+
+O que fica gravado no contrato e no cache não guarda texto traduzido: `message_id`/`message_args` no serviço e `label_id`/`label_args` na métrica levam o msgid (inglês) e os valores brutos dos marcadores, e `message`/`label` guardam o texto no idioma da coleta para quem consome sem catálogo. Trocar o idioma não descarta leitura, não força coleta e não marca nada como antigo. Identificador persistido usa sempre entrada singular — o contrato não oferece seleção de plural nesses registros — e uma trava percorre os 88 `N_()`/`message_id=`/`label_id=` do backend mais os `N_()` do painel contra as entradas plurais do catálogo.
+
+A precedência de idioma é política do projeto, escrita em `docs/i18n.md`, e não promete equivalência com o gettext nativo nem com as telas do desktop: `LANGUAGE` definida e não vazia manda sozinha — é por ela que o applet exporta o idioma fixado aos processos filhos — senão vale a primeira de `LC_ALL`, `LC_MESSAGES` e `LANG`; idioma sem catálogo responde inglês, nunca o idioma de quem está logado. A regra de plural sai da expressão `Plural-Forms` do cabeçalho do catálogo, espelhada numa tabela em cada runtime: em pt_BR `plural=(n > 1)`, então zero é singular.
+
+O trabalho foi dividido em três frentes com `git worktree` disjuntos (provedores; as duas janelas; coleta e credenciais), cada uma entregando um fragmento `.po`, e o catálogo foi fechado por um dono só com `msgcat`: 276 das 277 entradas traduzidas (a que falta é o cabeçalho), zero obsoletas, zero fuzzy.
+
+Duas correções vieram de conferir o que o teste dizia provar, e não do código do produto. O crivo de prosa fora do catálogo contava caractere não-ASCII e era cego para metade do problema — `Saldo`, `Sem uso observado` e qualquer frase inglesa fixa no código não têm acento nenhum; ele passou a decidir pela forma, e o que parece prosa sem ser texto de tela fica declarado com motivo e comparado por igualdade. E as mensagens do instalador, que também falam com uma pessoa, ficaram fora da varredura porque só `backend/*.py` era olhado: o instalador entrou no catálogo, com o idioma ativado no `main()` e nunca no import.
+
+Verificação desta rodada: **224 testes Python offline em pt_BR e em inglês**, suíte do painel em Node e `node --check`, `compileall`, `sh scripts/i18n.sh` idempotente (`.po`, `.pot` e `.mo` idênticos em duas execuções) e nenhum caminho desta máquina no repositório. O texto visível em pt_BR foi comparado com o commit anterior por um dump canônico — demonstração, os nove diagnósticos e a coleta sem configuração — e saiu idêntico; o mesmo dump em inglês não tem resíduo de português. As duas janelas GTK foram abertas com dados sintéticos em pt_BR e em inglês, cada uma conferida no idioma resolvido e por captura (`docs/demo.png` em inglês, `docs/demo.pt-BR.png` em português). Nada foi instalado, ativado ou recarregado no painel.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.
