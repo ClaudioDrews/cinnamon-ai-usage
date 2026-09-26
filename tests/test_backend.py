@@ -742,14 +742,21 @@ class HygieneTests(unittest.TestCase):
         import install
         with tempfile.TemporaryDirectory() as tmp:
             applets = Path(tmp)/'applets'
-            alvo = install.install(str(applets))
+            catalogs = Path(tmp)/'locale-do-usuario'
+            alvo = install.install(str(applets), str(catalogs))
             self.assertEqual(sorted(pasta.name for pasta in applets.iterdir()), [install.UUID])
             self.assertEqual(stat.S_IMODE(alvo.stat().st_mode), 0o755)
             self.assertEqual(stat.S_IMODE((alvo/'backend').stat().st_mode), 0o755)
             self.assertEqual(stat.S_IMODE((alvo/'applet.js').stat().st_mode), 0o644)
             self.assertTrue((alvo/'backend/collector.py').is_file())
             self.assertTrue((alvo/'assets/robot-head-symbolic.svg').is_file())
-            install.install(str(applets))  # segunda vez: a anterior vai para backup
+            # O shell do Cinnamon procura o catálogo em ~/.local/share/locale. Instalação que
+            # não o deixa lá entrega a interface em inglês mesmo com a tradução no repositório.
+            catalogo = catalogs/'pt_BR/LC_MESSAGES'/(install.UUID + '.mo')
+            self.assertTrue(catalogo.is_file())
+            self.assertEqual(stat.S_IMODE(catalogo.stat().st_mode), 0o644)
+            self.assertTrue((alvo/'locale/pt_BR/LC_MESSAGES'/(install.UUID + '.mo')).is_file())
+            install.install(str(applets), str(catalogs))  # segunda vez: a anterior vai para backup
             self.assertEqual(sorted(pasta.name for pasta in applets.iterdir()), [install.UUID])
             self.assertEqual(len(list((Path(tmp)/'ai-usage-backups').iterdir())), 1)
 

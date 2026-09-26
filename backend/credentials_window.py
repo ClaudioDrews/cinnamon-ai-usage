@@ -26,6 +26,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 import credentials  # noqa: E402
+import i18n  # noqa: E402
 
 APP_ID = "claudio.drews.CinnamonAIUsage.Credenciais"
 WINDOW_TITLE = "Credenciais — Uso de IA"
@@ -381,6 +382,7 @@ class CredentialsApplication(Gtk.Application):
 
 
 def main(argv=None) -> int:
+    i18n.activate()
     return CredentialsApplication().run(list(sys.argv if argv is None else argv))
 
 

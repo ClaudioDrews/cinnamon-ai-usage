@@ -15,6 +15,7 @@ import tempfile
 import time
 from datetime import datetime
 
+import i18n
 from providers import SERVICES, collect_provider, diagnose, number, service, stamp, metric, read_json
 
 
@@ -252,6 +253,7 @@ def public(snapshot):
 
 
 def main():
+    i18n.activate()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", nargs="?", default="collect",
                         choices=["collect", "read", "demo", "worker", "diag"])

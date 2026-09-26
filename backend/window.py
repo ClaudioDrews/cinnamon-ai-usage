@@ -23,6 +23,8 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gio, GLib, Gtk, GdkPixbuf  # noqa: E402
 
+import i18n  # noqa: E402
+
 APP_ID = "claudio.drews.CinnamonAIUsage"
 WINDOW_TITLE = "Uso de IA"
 WINDOW_SUBTITLE = "Serviços de IA monitorados"
@@ -773,6 +775,7 @@ class UsageApplication(Gtk.Application):
 
 def main(argv=None) -> int:
     argv = list(sys.argv if argv is None else argv)
+    i18n.activate()
     try:
         locale.setlocale(locale.LC_ALL, "")
     except locale.Error:

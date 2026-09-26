@@ -24,7 +24,28 @@ def readable_for_users(path):
         for name in files:
             os.chmod(Path(base)/name, 0o644)
 
-def install(destination):
+def install_catalogs(destination):
+    """Instala os catálogos onde o shell do Cinnamon os procura.
+
+    O shell liga o domínio gettext do xlet a ``~/.local/share/locale``
+    (``appletManager.js``) e não há como apontá-lo para dentro do applet: sem o
+    ``.mo`` ali, o applet, o nome/descrição na lista de Applets e os rótulos das
+    preferências ficam em inglês. A cópia dentro do applet serve ao backend Python,
+    que procura primeiro no próprio ``locale/``.
+
+    Devolve os caminhos gravados, para a instalação poder dizer o que fez.
+    """
+    written = []
+    for source in sorted((ROOT/'locale').glob('*/LC_MESSAGES/*.mo')):
+        language = source.parent.parent.name
+        target = Path(destination).expanduser()/language/'LC_MESSAGES'/source.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        target.chmod(0o644)
+        written.append(target)
+    return written
+
+def install(destination, locale_destination=None):
     destination = Path(destination).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     target = destination / UUID
@@ -36,6 +57,7 @@ def install(destination):
             shutil.copy2(ROOT/'applet'/name, stage/name)
         shutil.copytree(ROOT/'backend', stage/'backend', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         shutil.copytree(ROOT/'assets', stage/'assets')
+        shutil.copytree(ROOT/'locale', stage/'locale')
         shutil.copy2(ROOT/'README.md', stage/'README.md')
         shutil.copy2(ROOT/'LICENSE', stage/'LICENSE')
         readable_for_users(stage)
@@ -49,10 +71,17 @@ def install(destination):
     finally:
         if stage.exists(): shutil.rmtree(stage)
     print('Instalado em:', target)
+    catalogs = install_catalogs(locale_destination
+                                or Path.home()/'.local/share/locale')
+    for path in catalogs:
+        print('Catálogo instalado em:', path)
     print('Abra as configurações de Applets do Cinnamon e adicione Uso de IA ao painel.')
     return target
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--destination', default=str(Path.home()/'.local/share/cinnamon/applets'))
-    install(parser.parse_args().destination)
+    parser.add_argument('--locale-destination', default=None,
+                        help='onde gravar os catálogos (padrão: ~/.local/share/locale)')
+    arguments = parser.parse_args()
+    install(arguments.destination, arguments.locale_destination)

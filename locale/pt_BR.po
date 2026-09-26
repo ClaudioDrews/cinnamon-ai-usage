@@ -1,0 +1,276 @@
+# Tradução pt_BR do applet e do backend do Cinnamon AI Usage.
+#
+# O msgid é o texto em inglês: o código fala inglês e a interface em português vive
+# aqui. O .mo compilado (locale/pt_BR/LC_MESSAGES/ai-usage@claudio.drews.mo) é o que
+# o shell do Cinnamon carrega para o applet, o nome e a descrição do xlet e os
+# rótulos das preferências, e o que o gettext do Python carrega para as janelas.
+#
+# Atualize com scripts/i18n.sh (extrai, faz msgmerge deste arquivo e compila o .mo).
+# Não edite o .mo à mão.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ai-usage@claudio.drews 0.2.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-26 14:49-0300\n"
+"PO-Revision-Date: 2026-09-26 15:00-0300\n"
+"Last-Translator: Cláudio Drews\n"
+"Language-Team: Português (Brasil)\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: applet/applet.js:197
+msgid "Could not start the collector."
+msgstr "Não foi possível iniciar o coletor."
+
+#: applet/applet.js:231
+msgid "Collection timed out."
+msgstr "Tempo limite da coleta excedido."
+
+#: applet/applet.js:231
+msgid "Could not read the collector output."
+msgstr "Falha ao ler o coletor."
+
+# Applet (applet/applet.js)
+#: applet/applet.js:285
+msgid "AI usage"
+msgstr "Uso de IA"
+
+#: applet/applet.js:292 applet/applet.js:413
+msgid "{label}: {percent} used"
+msgstr "{label}: {percent} usado"
+
+#: applet/applet.js:294 applet/applet.js:430
+msgid "{label}: {money}"
+msgstr "{label}: {money}"
+
+#: applet/applet.js:297
+msgid "Not configured"
+msgstr "Não configurado"
+
+#: applet/applet.js:297
+msgid "Unavailable"
+msgstr "Indisponível"
+
+#: applet/applet.js:298
+msgid "Reading failed"
+msgstr "Falha na leitura"
+
+#: applet/applet.js:298
+msgid "No reading"
+msgstr "Sem leitura"
+
+#: applet/applet.js:300
+msgid " (stale reading)"
+msgstr " (leitura antiga)"
+
+#: applet/applet.js:303
+msgid "Waiting for the first reading…"
+msgstr "Aguardando a primeira leitura…"
+
+#: applet/applet.js:304
+msgid "Critical quota"
+msgstr "Cota crítica"
+
+#: applet/applet.js:304
+msgid "Attention"
+msgstr "Atenção"
+
+#: applet/applet.js:307
+msgid "Last collection: {time}"
+msgstr "Última coleta: {time}"
+
+#: applet/applet.js:309 applet/applet.js:369
+msgid "Automatic collection paused"
+msgstr "Coleta automática pausada"
+
+#: applet/applet.js:310
+msgid "Updating…"
+msgstr "Atualizando…"
+
+#: applet/applet.js:314 applet/applet.js:374
+msgid "Reading failed: {services}"
+msgstr "Falha na leitura: {services}"
+
+#: applet/applet.js:316 applet/applet.js:377
+msgid "Stale reading: {services}"
+msgstr "Leitura antiga: {services}"
+
+#: applet/applet.js:317
+msgid "Click: recent · double-click: all"
+msgstr "Clique: recentes · clique duplo: todos"
+
+#: applet/applet.js:341
+msgid "and {count} more"
+msgstr "e mais {count}"
+
+#: applet/applet.js:368
+msgid "Five most recent · estimated usage"
+msgstr "Cinco mais recentes · uso estimado"
+
+#: applet/applet.js:370
+msgid "Updating… Reopen to see the new reading."
+msgstr "Atualizando… Reabra para ver a nova leitura."
+
+#: applet/applet.js:372
+msgid "Last values preserved."
+msgstr "Últimos valores preservados."
+
+#: applet/applet.js:379
+msgid "No reading yet; use Update or See all."
+msgstr "Sem leitura ainda; use Atualizar ou Ver todos."
+
+#: applet/applet.js:383
+msgid "{count} service(s) without a reading; see Credentials…"
+msgstr "{count} serviço(s) sem leitura; veja Credenciais…"
+
+#: applet/applet.js:385
+msgid "See all services…"
+msgstr "Ver todos os serviços…"
+
+#: applet/applet.js:386
+msgid "Update"
+msgstr "Atualizar"
+
+#: applet/applet.js:387
+msgid "Credentials…"
+msgstr "Credenciais…"
+
+#: applet/applet.js:388
+msgid "Settings…"
+msgstr "Configurações…"
+
+#: applet/applet.js:397
+msgid "Could not run the action."
+msgstr "Não foi possível executar a ação."
+
+#: applet/applet.js:435
+msgid "Stale reading — see details"
+msgstr "Leitura antiga — ver detalhes"
+
+#: applet/applet.js:435
+msgid "No current reading"
+msgstr "Sem leitura atual"
+
+#: applet/applet.js:437
+msgid "No observed use since installation"
+msgstr "Sem uso observado desde a instalação"
+
+#: applet/applet.js:445
+msgid "Could not open the window."
+msgstr "Não foi possível abrir a janela."
+
+#: applet/applet.js:450
+msgid "Could not open the credentials."
+msgstr "Não foi possível abrir as credenciais."
+
+# Backend compartilhado (backend/i18n.py)
+#: backend/i18n.py:203 backend/i18n.py:221
+msgid "unavailable"
+msgstr "indisponível"
+
+#: backend/i18n.py:214
+msgid "percentage unavailable"
+msgstr "percentual indisponível"
+
+#: backend/i18n.py:245 backend/i18n.py:257
+msgid "unknown time"
+msgstr "horário desconhecido"
+
+#: backend/i18n.py:266
+msgid "unknown duration"
+msgstr "duração desconhecida"
+
+#: backend/i18n.py:268
+msgid "under 2 minutes"
+msgstr "menos de 2 minutos"
+
+#: backend/i18n.py:271
+#, python-brace-format
+msgid "{minutes} min"
+msgstr "{minutes} min"
+
+#: backend/i18n.py:276
+#, python-brace-format
+msgid "{hours} h {minutes} min"
+msgstr "{hours} h {minutes} min"
+
+#: backend/i18n.py:277
+#, python-brace-format
+msgid "{hours} h"
+msgstr "{hours} h"
+
+#: backend/i18n.py:279
+#, python-brace-format
+msgid "{days} day"
+msgid_plural "{days} days"
+msgstr[0] "{days} dia"
+msgstr[1] "{days} dias"
+
+#: backend/i18n.py:289
+msgid "now"
+msgstr "agora"
+
+#: backend/i18n.py:290
+#, python-brace-format
+msgid "{duration} ago"
+msgstr "há {duration}"
+
+# Nome, descrição e preferências do xlet (applet/metadata.json, applet/settings-schema.json)
+msgid "Recent usage of the configured AI services, right in the Cinnamon panel"
+msgstr ""
+"Uso recente dos serviços de IA configurados, direto no painel do Cinnamon"
+
+msgid "Collection"
+msgstr "Coleta"
+
+msgid "Usage collection"
+msgstr "Coleta de uso"
+
+msgid "Interface"
+msgstr "Interface"
+
+msgid "Collect usage periodically"
+msgstr "Coletar uso periodicamente"
+
+msgid ""
+"When off, the applet keeps the last valid reading and stops querying the "
+"services. No credential is stored here."
+msgstr ""
+"Quando desativado, o applet mantém a última leitura válida e para de "
+"consultar os serviços. Nenhuma credencial é guardada aqui."
+
+msgid "Interval between collections"
+msgstr "Intervalo entre coletas"
+
+msgid ""
+"Time between two automatic readings. The Update button in the menu always "
+"forces an immediate reading."
+msgstr ""
+"Tempo entre duas leituras automáticas. O botão Atualizar do menu sempre "
+"força uma leitura na hora."
+
+msgid "seconds"
+msgstr "segundos"
+
+msgid "Interface language"
+msgstr "Idioma da interface"
+
+msgid ""
+"Automatic follows the session language; a fixed language also applies to the "
+"collection, the usage window and the credentials window."
+msgstr ""
+"Automático segue o idioma da sessão; um idioma fixado vale também para a "
+"coleta, a janela de uso e a de credenciais."
+
+msgid "Automatic (system language)"
+msgstr "Automática (idioma do sistema)"
+
+msgid "English"
+msgstr "English"
+
+msgid "Português (Brasil)"
+msgstr "Português (Brasil)"

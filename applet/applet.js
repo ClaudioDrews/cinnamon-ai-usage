@@ -1,8 +1,9 @@
-/* Cinnamon AI Usage — native CJS/St frontend; see docs/contract.md. */
+/* Cinnamon AI Usage — native CJS/St frontend; see docs/contract.md and docs/i18n.md. */
 const Applet = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
 const Settings = imports.ui.settings;
 const Mainloop = imports.mainloop;
+const Gettext = imports.gettext;
 const St = imports.gi.St;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
@@ -10,6 +11,81 @@ const Clutter = imports.gi.Clutter;
 
 const WARNING_COLOR = '#e5a50a';
 const CRITICAL_COLOR = '#e01b24';
+
+// Texto visível nasce aqui com msgid em inglês; a tradução vive em
+// locale/<idioma>/LC_MESSAGES/ai-usage@claudio.drews.mo, e o shell já ligou o
+// domínio do xlet a ~/.local/share/locale (appletManager.js). Sem catálogo sai o
+// próprio msgid — inglês, nunca um idioma que catálogo nenhum cobre.
+let _uuid = null;
+function _(text) { return _uuid ? Gettext.dgettext(_uuid, text) : text; }
+function _f(text, values) {
+    return text.replace(/\{(\w+)\}/g, (whole, name) =>
+        Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : whole);
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function dataHome() {
+    return GLib.getenv('XDG_DATA_HOME') ||
+        GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share']);
+}
+
+// O catálogo tem de existir para o idioma valer: pedir francês sem catálogo
+// francês não pode deixar a interface pela metade.
+function hasCatalog(code) {
+    if (!_uuid) return false;
+    const mo = GLib.build_filenamev([dataHome(), 'locale', code, 'LC_MESSAGES', _uuid + '.mo']);
+    return GLib.file_test(mo, GLib.FileTest.IS_REGULAR);
+}
+
+function normalizeTag(tag) {
+    if (typeof tag !== 'string') return '';
+    const code = tag.split('.')[0].split('@')[0].replace('-', '_').toLowerCase();
+    if (['pt', 'pt_br', 'pt_pt'].indexOf(code) >= 0) return 'pt_BR';
+    if (['en', 'en_us', 'en_gb', 'c', 'posix'].indexOf(code) >= 0) return 'en';
+    return '';
+}
+
+function resolveLanguage(requested) {
+    const wanted = normalizeTag(requested);
+    if (wanted) return (wanted === 'en' || hasCatalog(wanted)) ? wanted : 'en';
+    const names = GLib.get_language_names ? GLib.get_language_names() : [];
+    for (const name of names) {
+        const code = normalizeTag(name);
+        if (code && (code === 'en' || hasCatalog(code))) return code;
+    }
+    return 'en';
+}
+
+// Número e data sem Intl e sem setlocale: separador e formato vêm da tabela do
+// idioma, iguais aos de backend/i18n.py, para painel e janela mostrarem o mesmo
+// (o processo herda o locale da sessão e um mês sairia no idioma errado).
+function formatNumber(value, decimals, lang) {
+    const text = Number(value).toFixed(decimals);
+    return lang === 'pt_BR' ? text.replace('.', ',') : text;
+}
+function formatPercent(value, lang) { return formatNumber(value, 1, lang) + '%'; }
+function formatMoney(value, currency, lang) {
+    const text = formatNumber(value, 2, lang);
+    if (!currency) return text;
+    return lang === 'pt_BR' ? text + ' ' + currency : currency + ' ' + text;
+}
+function formatTime(moment, lang) {
+    const hour = moment.getHours();
+    const minute = String(moment.getMinutes()).padStart(2, '0');
+    if (lang === 'pt_BR') return String(hour).padStart(2, '0') + ':' + minute;
+    return (hour % 12 || 12) + ':' + minute + ' ' + (hour < 12 ? 'AM' : 'PM');
+}
+function formatDateTime(moment, lang) {
+    if (lang === 'pt_BR') {
+        const day = String(moment.getDate()).padStart(2, '0');
+        return day + '/' + String(moment.getMonth() + 1).padStart(2, '0') + '/' +
+            moment.getFullYear() + ' ' + formatTime(moment, lang);
+    }
+    return MONTHS[moment.getMonth()] + ' ' + moment.getDate() + ', ' +
+        moment.getFullYear() + ' ' + formatTime(moment, lang);
+}
 
 class AIUsageApplet extends Applet.IconApplet {
     constructor(metadata, orientation, panelHeight, instanceId) {
@@ -39,17 +115,29 @@ class AIUsageApplet extends Applet.IconApplet {
         try {
             const mouse = new Gio.Settings({schema_id: 'org.cinnamon.desktop.peripherals.mouse'});
             this._doubleClickMs = Math.max(100, Math.min(1500, mouse.get_int('double-click')));
-        } catch (_) { /* use conventional fallback */ }
+        } catch (error) { /* use conventional fallback */ }
         this._ready = false;
+        this._language = 'en';
+        this._languageOverride = null;
         this.settings = new Settings.AppletSettings(this, metadata.uuid, instanceId);
         this.settings.bind('collect-enabled', 'collectEnabled', () => this._configure());
         this.settings.bind('collect-interval', 'collectInterval', () => this._configure());
+        this.settings.bind('language', 'language', () => this._configure());
         this._ready = true;
         this._configure();
     }
 
+    // 'auto' segue o idioma da sessão; um idioma fixado na configuração passa a
+    // valer também para os processos filhos (coleta, janela de uso, credenciais).
+    _applyLanguage() {
+        const wanted = this.language && this.language !== 'auto' ? this.language : null;
+        this._languageOverride = wanted;
+        this._language = resolveLanguage(wanted);
+    }
+
     _configure() {
         if (!this._ready || this._stopped) return;
+        this._applyLanguage();
         if (this._loop) Mainloop.source_remove(this._loop);
         this._loop = 0;
         if (this.collectEnabled) {
@@ -104,9 +192,9 @@ class AIUsageApplet extends Applet.IconApplet {
         if (force) argv.push('--force');
         let proc;
         try {
-            proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
-        } catch (_) {
-            this._error = 'Não foi possível iniciar o coletor.';
+            proc = this._spawn(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+        } catch (error) {
+            this._error = _('Could not start the collector.');
             this._refreshIcon();
             return;
         }
@@ -139,8 +227,8 @@ class AIUsageApplet extends Applet.IconApplet {
                 if (snapshot.schema_version !== 1 || !Array.isArray(snapshot.services)) throw new Error();
                 this._snapshot = snapshot;
                 this._error = null;
-            } catch (_) {
-                this._error = timedOut ? 'Tempo limite da coleta excedido.' : 'Falha ao ler o coletor.';
+            } catch (error) {
+                this._error = timedOut ? _('Collection timed out.') : _('Could not read the collector output.');
             }
             this._refreshIcon();
             // Intentionally do not reorder/rebuild while the pointer is inside the menu.
@@ -184,7 +272,7 @@ class AIUsageApplet extends Applet.IconApplet {
         // string vazia — o parser do St avisa com buffer vazio.
         try {
             this._applet_icon.set_style(color ? `color: ${color};` : null);
-        } catch (_) { /* tema sem suporte a cor de ícone */ }
+        } catch (error) { /* tema sem suporte a cor de ícone */ }
     }
 
     _refreshIcon() {
@@ -194,35 +282,39 @@ class AIUsageApplet extends Applet.IconApplet {
         const quotas = this._quotas(services);
         const highest = quotas.length ? quotas[0].metric.used_percent : 0;
         this._paintIcon(highest);
-        const lines = ['Uso de IA'];
+        const lines = [_('AI usage')];
         for (const service of services.filter(s => s.status !== 'disabled')) {
             const metrics = service.metrics || [];
             const quota = metrics.filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent))
                 .sort((a, b) => b.used_percent - a.used_percent)[0];
             const money = metrics.find(m => Number.isFinite(m.value));
             let detail;
-            if (quota) detail = `${quota.label}: ${quota.used_percent.toFixed(1).replace('.', ',')}% usado`;
-            else if (money) detail = `${money.label}: ${money.value.toFixed(2).replace('.', ',')} ${money.currency || ''}`;
-            else detail = {unconfigured: 'Não configurado', unavailable: 'Indisponível',
-                          error: 'Falha na leitura'}[service.status] || 'Sem leitura';
+            if (quota) detail = _f(_('{label}: {percent} used'),
+                                   {label: quota.label, percent: formatPercent(quota.used_percent, this._language)});
+            else if (money) detail = _f(_('{label}: {money}'),
+                                        {label: money.label,
+                                         money: formatMoney(money.value, money.currency, this._language)});
+            else detail = {unconfigured: _('Not configured'), unavailable: _('Unavailable'),
+                          error: _('Reading failed')}[service.status] || _('No reading');
             if (metrics.length && (service.status !== 'ok' || this._aged(service, agora)))
-                detail += ' (leitura antiga)';
+                detail += _(' (stale reading)');
             lines.push(`${service.label || service.id} — ${detail}`);
         }
-        if (!services.length) lines.push('Aguardando a primeira leitura…');
-        if (highest >= 70) lines.push(`\n${highest >= 90 ? 'Cota crítica' : 'Atenção'}: ${quotas[0].service} · ${quotas[0].metric.label}`);
+        if (!services.length) lines.push(_('Waiting for the first reading…'));
+        if (highest >= 70) lines.push(`\n${highest >= 90 ? _('Critical quota') : _('Attention')}: ${quotas[0].service} · ${quotas[0].metric.label}`);
         const generated = this._snapshot && this._snapshot.generated_at;
         if (generated && Number.isFinite(Date.parse(generated)))
-            lines.push(`\nÚltima coleta: ${new Date(generated).toLocaleTimeString('pt-BR')}`);
-        if (!this.collectEnabled) lines.push('Coleta automática pausada');
-        if (this._proc) lines.push('Atualizando…');
+            lines.push('\n' + _f(_('Last collection: {time}'),
+                                 {time: formatTime(new Date(generated), this._language)}));
+        if (!this.collectEnabled) lines.push(_('Automatic collection paused'));
+        if (this._proc) lines.push(_('Updating…'));
         if (this._error) lines.push(this._error);
         if (this._notice()) lines.push(this._notice());
         const comFalha = this._byStatus('error');
-        if (comFalha.length) lines.push(`Falha na leitura: ${this._list(comFalha)}`);
+        if (comFalha.length) lines.push(_f(_('Reading failed: {services}'), {services: this._list(comFalha)}));
         const antigas = this._agedServices().map(s => s.label || s.id);
-        if (antigas.length) lines.push(`Leitura antiga: ${this._list(antigas)}`);
-        lines.push('\nClique: recentes · clique duplo: todos');
+        if (antigas.length) lines.push(_f(_('Stale reading: {services}'), {services: this._list(antigas)}));
+        lines.push('\n' + _('Click: recent · double-click: all'));
         this.set_applet_tooltip(lines.join('\n'));
     }
 
@@ -245,7 +337,8 @@ class AIUsageApplet extends Applet.IconApplet {
 
     _list(names, limit = 3) {
         if (names.length <= limit) return names.join(', ');
-        return `${names.slice(0, limit).join(', ')} e mais ${names.length - limit}`;
+        return names.slice(0, limit).join(', ') + ' ' +
+            _f(_('and {count} more'), {count: names.length - limit});
     }
 
     _lastUsed(service) {
@@ -272,27 +365,27 @@ class AIUsageApplet extends Applet.IconApplet {
 
     _renderMenu() {
         this.menu.removeAll();
-        this._note('Cinco mais recentes · uso estimado');
-        if (!this.collectEnabled) this._note('Coleta automática pausada');
-        if (this._proc) this._note('Atualizando… Reabra para ver a nova leitura.');
+        this._note(_('Five most recent · estimated usage'));
+        if (!this.collectEnabled) this._note(_('Automatic collection paused'));
+        if (this._proc) this._note(_('Updating… Reopen to see the new reading.'));
         if (this._notice()) this._note(this._notice());
-        if (this._error) this._note(this._error + ' Últimos valores preservados.');
+        if (this._error) this._note(this._error + ' ' + _('Last values preserved.'));
         const comFalha = this._byStatus('error');
-        if (comFalha.length) this._note(`Falha na leitura: ${this._list(comFalha)}`,
+        if (comFalha.length) this._note(_f(_('Reading failed: {services}'), {services: this._list(comFalha)}),
                                         'ai-usage-menu-error');
         const antigas = this._agedServices().map(s => s.label || s.id);
-        if (antigas.length) this._note(`Leitura antiga: ${this._list(antigas)}`);
+        if (antigas.length) this._note(_f(_('Stale reading: {services}'), {services: this._list(antigas)}));
         const recent = this._recent();
-        if (!recent.length) this._note('Sem leitura ainda; use Atualizar ou Ver todos.');
+        if (!recent.length) this._note(_('No reading yet; use Update or See all.'));
         for (const service of recent) this._serviceRow(service);
         const pending = (this._snapshot ? this._snapshot.services : [])
             .filter(s => ['unconfigured', 'unavailable'].includes(s.status)).length;
-        if (pending) this._note(`${pending} serviço(s) sem leitura; veja Credenciais…`);
+        if (pending) this._note(_f(_('{count} service(s) without a reading; see Credentials…'), {count: pending}));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._action('Ver todos os serviços…', () => this._openWindow());
-        this._action('Atualizar', () => this._collect(true));
-        this._action('Credenciais…', () => this._openCredentials());
-        this._action('Configurações…', () => {
+        this._action(_('See all services…'), () => this._openWindow());
+        this._action(_('Update'), () => this._collect(true));
+        this._action(_('Credentials…'), () => this._openCredentials());
+        this._action(_('Settings…'), () => {
             Gio.Subprocess.new(['xlet-settings', 'applet', this._uuid, '-i', String(this._instance)],
                                Gio.SubprocessFlags.NONE);
         });
@@ -301,7 +394,7 @@ class AIUsageApplet extends Applet.IconApplet {
     _action(label, callback) {
         const item = new PopupMenu.PopupMenuItem(label);
         item.connect('activate', () => {
-            try { callback(); } catch (_) { this._error = 'Não foi possível executar a ação.'; this._refreshIcon(); }
+            try { callback(); } catch (error) { this._error = _('Could not run the action.'); this._refreshIcon(); }
         });
         this.menu.addMenuItem(item);
     }
@@ -317,7 +410,8 @@ class AIUsageApplet extends Applet.IconApplet {
         const m = quotas[0] || metrics[0];
         if (m && m.kind === 'quota' && Number.isFinite(m.used_percent)) {
             const value = Math.max(0, Math.min(100, m.used_percent));
-            box.add_actor(new St.Label({text: `${m.label}: ${value.toFixed(1).replace('.', ',')}% usado`,
+            box.add_actor(new St.Label({text: _f(_('{label}: {percent} used'),
+                {label: m.label, percent: formatPercent(value, this._language)}),
                                        style_class: 'ai-usage-service-note'}));
             const track = new St.Bin({style_class: 'ai-usage-bar-track', width: 290, height: 5,
                                       x_fill: false, x_align: St.Align.START});
@@ -333,13 +427,14 @@ class AIUsageApplet extends Applet.IconApplet {
             }
             box.add_actor(track);
         } else if (m && Number.isFinite(m.value)) {
-            box.add_actor(new St.Label({text: `${m.label}: ${m.value.toFixed(2).replace('.', ',')} ${m.currency || ''}`,
+            box.add_actor(new St.Label({text: _f(_('{label}: {money}'),
+                {label: m.label, money: formatMoney(m.value, m.currency, this._language)}),
                                        style_class: 'ai-usage-service-note'}));
         }
         if (service.status !== 'ok') box.add_actor(new St.Label({text: service.status === 'stale' ?
-            'Leitura antiga — ver detalhes' : 'Sem leitura atual', style_class: 'ai-usage-service-note'}));
+            _('Stale reading — see details') : _('No current reading'), style_class: 'ai-usage-service-note'}));
         else if (this._lastUsed(service) === null)
-            box.add_actor(new St.Label({text: 'Sem uso observado desde a instalação',
+            box.add_actor(new St.Label({text: _('No observed use since installation'),
                                        style_class: 'ai-usage-service-note'}));
         item.addActor(box, {expand: true, span: -1});
         this.menu.addMenuItem(item);
@@ -347,19 +442,28 @@ class AIUsageApplet extends Applet.IconApplet {
 
     _openWindow() {
         this.menu.close();
-        this._runBackend('window.py', 'Não foi possível abrir a janela.');
+        this._runBackend('window.py', _('Could not open the window.'));
     }
 
     _openCredentials() {
         this.menu.close();
-        this._runBackend('credentials_window.py', 'Não foi possível abrir as credenciais.');
+        this._runBackend('credentials_window.py', _('Could not open the credentials.'));
+    }
+
+    // Com idioma fixado na configuração, o processo filho recebe LANGUAGE: a coleta,
+    // a janela de uso e a de credenciais têm de falar o mesmo idioma do painel.
+    _spawn(argv, flags) {
+        if (!this._languageOverride) return Gio.Subprocess.new(argv, flags);
+        const launcher = new Gio.SubprocessLauncher({flags: flags});
+        launcher.setenv('LANGUAGE', this._languageOverride, true);
+        return launcher.spawnv(argv);
     }
 
     _runBackend(script, errorMessage) {
         try {
-            Gio.Subprocess.new(['/usr/bin/python3', GLib.build_filenamev([this._backend, script])],
-                               Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE);
-        } catch (_) { this._error = errorMessage; this._refreshIcon(); }
+            this._spawn(['/usr/bin/python3', GLib.build_filenamev([this._backend, script])],
+                        Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE);
+        } catch (error) { this._error = errorMessage; this._refreshIcon(); }
     }
 
     on_applet_removed_from_panel() {
@@ -375,5 +479,6 @@ class AIUsageApplet extends Applet.IconApplet {
 }
 
 function main(metadata, orientation, panelHeight, instanceId) {
+    _uuid = metadata.uuid;   // o domínio gettext do xlet é o próprio uuid
     return new AIUsageApplet(metadata, orientation, panelHeight, instanceId);
 }
