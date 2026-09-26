@@ -44,7 +44,7 @@ Verified on 2026-09-25, Mint 22.3 / Cinnamon 6.6.9:
 
 The Grok connector monitors **the xAI API**, not the SuperGrok/Grok Build subscription. Those plans require another source. Antigravity and Go use interfaces that may change; changes are treated as unavailability, without turning absence of data into zero. The Meta connector reads the Muse Code **subscription** (current and weekly window), not the Meta API usage billing. The Claude Code connector is the only one published **without verification on a real account** — it's implemented, tested against the format an applet already accepted in the store uses, and labeled as unverified; its section explains what's missing and how to report.
 
-[Preview of the window with fictional data](docs/demo.png)
+Previews, all with fictional data: [the window](docs/demo.png), [the panel menu](docs/menu.png) and [the tooltip](docs/tooltip.png) — the two panel shots are the real applet showing the demo snapshot, with no account reading in them.
 
 ## Run without installing
 
@@ -245,9 +245,10 @@ python3 -m compileall -q backend
 sh scripts/spices.sh   # package for the applet store, in build/spice/
 PYTHON=/usr/bin/python3 VALIDATE_SPICE=/path/to/validate-spice sh scripts/spices.sh  # with the store's official validator (needs PIL)
 python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requires a graphical session
+python3 scripts/capturar-painel.py  # refresh docs/menu*.png and docs/tooltip*.png from the live panel (needs python3-xlib)
 ```
 
-The offline tests cover parsers, absence versus zero, renewal, recency, account change, failure preserving cache, and secret isolation. The JS test simulates the applet's environment to check clicks, timers, collection, and the five-item limit; it doesn't replace validation on the real panel. The GTK test opens and closes a demo window.
+The offline tests cover parsers, absence versus zero, renewal, recency, account change, failure preserving cache, and secret isolation. The JS test simulates the applet's environment to check clicks, timers, collection, and the five-item limit; it doesn't replace validation on the real panel. The GTK test opens and closes a demo window. The panel capture script isn't covered by the suite: it needs the applet loaded in a live panel, and it restores the applet's real snapshot when it finishes.
 
 Architecture and format: [docs/contract.md](docs/contract.md). Evidence, sources, and limitations: [docs/validation.md](docs/validation.md).
 

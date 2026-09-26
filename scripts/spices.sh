@@ -94,7 +94,12 @@ PY
 # texto próprio da loja (spice/README.md) — curto, com links absolutos e sem install.py —,
 # não o README do repositório, cujos links para docs/ quebrariam no site.
 printf '{\n    "author": "ClaudioDrews",\n    "license": "MIT"\n}\n' > "$RAIZ/info.json"
-cp docs/demo.png "$RAIZ/screenshot.png"
+# O material da loja vive em spice/: o texto próprio (README.md e README.pt-BR.md) e o
+# `screenshot.png`, que é a janela real numa sessão gráfica — com a faixa "valores fictícios"
+# dentro do quadro —, não a prévia sem moldura que o teste GTK gera. Para refazer:
+# `LANGUAGE=<idioma> python3 backend/window.py --demo`, capturar a janela com
+# `import -window <id>` e salvar em spice/screenshot.png.
+cp spice/screenshot.png "$RAIZ/screenshot.png"
 cp spice/README.md "$RAIZ/README.md"
 cp LICENSE "$RAIZ/"
 

@@ -44,7 +44,7 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 
 O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta. O conector do Claude Code é o único publicado **sem verificação em conta real** — está implementado, testado contra o formato que um applet já aceito na loja usa e rotulado como não verificado; a seção dele explica o que falta e como relatar.
 
-[Prévia da janela com dados fictícios](docs/demo.pt-BR.png)
+Prévias, todas com dados fictícios: [a janela](docs/demo.pt-BR.png), [o menu do painel](docs/menu.pt-BR.png) e [a dica](docs/tooltip.pt-BR.png) — as duas do painel são o applet real mostrando o snapshot de demonstração, sem leitura nenhuma da conta.
 
 ## Executar sem instalar
 
@@ -245,9 +245,10 @@ python3 -m compileall -q backend
 sh scripts/spices.sh   # monta o pacote da loja de applets em build/spice/
 PYTHON=/usr/bin/python3 VALIDATE_SPICE=/caminho/do/validate-spice sh scripts/spices.sh  # com o validador oficial da loja (exige PIL)
 python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requer sessão gráfica
+python3 scripts/capturar-painel.py  # refaz docs/menu*.png e docs/tooltip*.png a partir do painel vivo (exige python3-xlib)
 ```
 
-Os testes offline cobrem parsers, ausência versus zero, renovação, recência, troca de conta, falha preservando cache e isolamento de segredos. O teste JS simula o ambiente do applet para conferir cliques, timers, coleta e limite de cinco; não substitui a validação no painel real. O teste GTK abre e fecha uma janela de demonstração.
+Os testes offline cobrem parsers, ausência versus zero, renovação, recência, troca de conta, falha preservando cache e isolamento de segredos. O teste JS simula o ambiente do applet para conferir cliques, timers, coleta e limite de cinco; não substitui a validação no painel real. O teste GTK abre e fecha uma janela de demonstração. O script de captura do painel não é coberto pela suíte: ele precisa do applet carregado num painel vivo e devolve o snapshot real do applet quando termina.
 
 Arquitetura e formato: [docs/contract.md](docs/contract.md). Evidências, fontes e limitações: [docs/validation.md](docs/validation.md).
 
