@@ -13,7 +13,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 let next = 1;
 const timers = new Map(), subprocesses = [], launcherUses = [];
-let sessionLanguages = ['pt_BR.UTF-8', 'pt_BR', 'pt', 'C'];
+// Ambiente da sessão: as variáveis que o gettext lê, não a lista do GLib. O applet resolve
+// idioma pelas mesmas variáveis e na mesma ordem do backend — é isso que faz painel e janela
+// concordarem; `GLib.get_language_names()` dava outro resultado num ambiente misto.
+let sessionEnv = {LANG: 'pt_BR.UTF-8'};
 class Actor {
     constructor(props = {}) { Object.assign(this, props); this.children = []; }
     add_actor(a) { this.children.push(a); }
@@ -88,9 +91,9 @@ const context = {
             GLib: {build_filenamev: a => a.join('/'), file_test: path => fs.existsSync(path),
                    file_get_contents: readFile,
                    FileTest: {IS_DIR: 1, IS_REGULAR: 2},
-                   getenv: () => null, get_home_dir: () => '/tmp/home',
-                   // Idioma da sessão: o 'auto' resolve por esta lista, e o teste a troca.
-                   get_language_names: () => sessionLanguages.slice()},
+                   getenv: name => (Object.prototype.hasOwnProperty.call(sessionEnv, name)
+                       ? sessionEnv[name] : null),
+                   get_home_dir: () => '/tmp/home'},
             Gio: {
                 Settings: class { get_int() { return 400; } },
                 SubprocessFlags: {NONE: 0, STDOUT_PIPE: 1, STDERR_SILENCE: 2, STDOUT_SILENCE: 4},
@@ -112,7 +115,8 @@ vm.runInContext(fs.readFileSync('applet/applet.js', 'utf8') +
     '\nglobalThis.recordText = _recordText;' +
     '\nglobalThis.language = () => _language;' +
     '\nglobalThis.catalogFor = catalogFor;' +
-    '\nglobalThis.parseMo = parseMo;', context);
+    '\nglobalThis.parseMo = parseMo;' +
+    '\nglobalThis.plural = _n;', context);
 const UUID = 'ai-usage@claudio.drews';
 
 // Fecha a leitura de arranque que a construção dispara, para o próximo comando falar com a
@@ -282,8 +286,8 @@ applet.collectEnabled = true;
 // locale do processo: o catálogo é lido por instância. Os quatro cruzamentos, com texto e
 // formatação no mesmo idioma — a revisão reproduziu justamente o caso 'en' com sessão pt_BR.
 const extras = [];
-function instance(preference, session) {
-    sessionLanguages = session;
+function instance(preference, env) {
+    sessionEnv = env;
     const created = context.createApplet({uuid: UUID, path: 'applet'}, 0, 32, next);
     created.language = preference;
     created.collectEnabled = false;
@@ -297,8 +301,8 @@ function instance(preference, session) {
     return created;
 }
 
-const ptSession = ['pt_BR.UTF-8', 'pt_BR', 'pt', 'C'];
-const enSession = ['en_US.UTF-8', 'en'];
+const ptSession = {LANG: 'pt_BR.UTF-8'};
+const enSession = {LANG: 'en_US.UTF-8'};
 
 const inglesSobSessaoPt = instance('en', ptSession);
 assert.equal(inglesSobSessaoPt._language, 'en');
@@ -321,6 +325,28 @@ assert.equal(context.text('Update'), 'Update');
 const semCatalogo = instance('fr_FR', ptSession);
 assert.equal(semCatalogo._language, 'en', 'preferência sem catálogo cai no inglês, não na sessão');
 assert.equal(context.text('Update'), 'Update');
+
+// Ambiente misto, a divergência que o revisor reproduziu: `LANGUAGE=fr_FR` com LC_ALL e LANG
+// em pt_BR. O gettext é claro — LANGUAGE manda sozinha —, então a resposta é inglês nos dois
+// runtimes, e o painel concorda com a janela e com a tela de preferências do shell.
+const misto = instance('auto', {LANGUAGE: 'fr_FR', LC_ALL: 'pt_BR.UTF-8', LANG: 'pt_BR.UTF-8'});
+assert.equal(misto._language, 'en', 'LANGUAGE sem catálogo não volta para o LC_ALL');
+assert.equal(context.text('Update'), 'Update');
+
+// Lista em LANGUAGE, como o gettext aceita: o primeiro idioma com catálogo vence.
+const lista = instance('auto', {LANGUAGE: 'fr_FR:pt_BR', LANG: 'en_US.UTF-8'});
+assert.equal(lista._language, 'pt_BR', 'lista em LANGUAGE é percorrida na ordem');
+assert.equal(context.text('Update'), 'Atualizar');
+
+// Sem LANGUAGE, vale a primeira variável definida entre LC_ALL, LC_MESSAGES e LANG.
+assert.equal(instance('auto', {LC_ALL: 'pt_BR.UTF-8', LANG: 'en_US.UTF-8'})._language, 'pt_BR');
+assert.equal(instance('auto', {LC_MESSAGES: 'pt_BR.UTF-8', LANG: 'en_US.UTF-8'})._language, 'pt_BR');
+assert.equal(instance('auto', {LANGUAGE: '  ', LANG: 'pt_BR.UTF-8'})._language, 'pt_BR',
+    'LANGUAGE vazia não esconde o resto do ambiente');
+assert.equal(instance('auto', {})._language, 'en', 'ambiente sem variável nenhuma é inglês');
+assert.equal(instance('auto', {LANG: 'C'})._language, 'en', 'locale C não tem tradução');
+assert.equal(instance('auto', {LANG: 'pt_BR.UTF-8@euro'})._language, 'pt_BR',
+    'modificador @euro não esconde o idioma');
 
 // O idioma fixado vai para os filhos (coleta e janelas): o filho herda LANGUAGE.
 const fixado = instance('en', ptSession);
@@ -363,6 +389,24 @@ assert.equal(context.recordText({label_id: '{label}: {percent} used',
                                  label_args: {label: 'Janela', percent: '42,0%'},
                                  label: 'Janela: 42,0% usado'},
                                 'label_id', 'label_args', 'label'), 'Janela: 42,0% used');
+// Tradução idêntica ao original é entrada presente, não entrada ausente: `{hours} h` está no
+// catálogo com o mesmo texto, e comparar tradução com msgid classificaria essa entrada como
+// falta — o rótulo `99 h` da coleta antiga venceria o identificador com `hours=3`. É o caso
+// que o revisor reproduziu, e o que decide é a presença da entrada, não a igualdade do texto.
+assert.equal(context.recordText({label_id: '{hours} h', label_args: {hours: 3}, label: '99 h'},
+                                'label_id', 'label_args', 'label'), '3 h');
+assert.equal(context.recordText({label_id: '{hours} h', label_args: {hours: 1}, label: '99 h'},
+                                'label_id', 'label_args', 'label'), '1 h');
+// Entrada com plural não vale como identificador — falta o número para escolher a forma —, e
+// o painel decide igual ao backend: em português mostra o texto da coleta, não a primeira
+// forma do catálogo ("{days} dia" diria 1 dia no lugar de 3). Em inglês o identificador é a
+// própria frase, e é o que sai.
+instance('pt_BR', ptSession);
+assert.equal(context.recordText({label_id: '{days} day', label_args: {}, label: '3 dias'},
+                                'label_id', 'label_args', 'label'), '3 dias');
+instance('en', enSession);
+assert.equal(context.recordText({label_id: '{days} day', label_args: {}, label: '3 dias'},
+                                'label_id', 'label_args', 'label'), '{days} day');
 // Catálogo é lido uma vez por idioma e o de outro idioma não vaza para este.
 const ptCatalog = context.catalogFor('pt_BR');
 assert(ptCatalog !== null);
@@ -372,6 +416,16 @@ assert.equal(context.catalogFor('fr_FR'), null);
 assert.equal(ptCatalog.plurals['{days} day'].join(' | '), '{days} dia | {days} dias');
 assert.equal(ptCatalog.singles['{days} day'], undefined);
 assert.equal(ptCatalog.singles['Update'], 'Atualizar');
+// A forma plural segue a expressão do cabeçalho do catálogo (`plural=(n > 1)` em pt_BR), não
+// um `n === 1` genérico: em português zero é singular, em inglês é plural.
+instance('pt_BR', ptSession);
+assert.equal(context.plural('{days} day', '{days} days', 0), '{days} dia');
+assert.equal(context.plural('{days} day', '{days} days', 1), '{days} dia');
+assert.equal(context.plural('{days} day', '{days} days', 2), '{days} dias');
+instance('en', enSession);
+assert.equal(context.plural('{days} day', '{days} days', 0), '{days} days');
+assert.equal(context.plural('{days} day', '{days} days', 1), '{days} day');
+assert.equal(context.plural('{days} day', '{days} days', 2), '{days} days');
 // Arquivo ausente lança no GJS de verdade: sem catálogo o idioma não vale, e o applet não
 // pode morrer por causa disso.
 assert.equal(context.parseMo('/tmp/nao-existe.mo'), null);

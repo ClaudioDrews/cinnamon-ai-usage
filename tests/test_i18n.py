@@ -416,6 +416,58 @@ class CatalogTests(unittest.TestCase):
             self.assertIn('i18n.activate(', source, name)
 
 
+class PluralTests(unittest.TestCase):
+    """A forma plural do painel tem de ser a mesma do catálogo e do backend.
+
+    O painel não tem gettext: escolhe a forma por uma regra em código. Se essa regra discordar
+    do `Plural-Forms` do catálogo compilado, o mesmo número sai singular no painel e plural na
+    janela — e não se vê a olho, porque as duas frases parecem certas. O catálogo pt_BR declara
+    `plural=(n > 1)`, então zero é singular: um `n === 1` genérico mostraria "0 dias".
+    """
+
+    def tearDown(self):
+        with patch.dict('os.environ', {'LANGUAGE': 'en', 'LC_ALL': 'en', 'LANG': 'en'}):
+            i18n.activate()
+
+    def test_panel_rule_matches_the_catalog_header(self):
+        expression = header_value('Plural-Forms', 'nplurals=2; plural=(n != 1);')
+        match = re.search(r'plural\s*=\s*([^;]+)', expression)
+        self.assertTrue(match, 'cabeçalho sem expressão de plural: %r' % expression)
+        rule = match.group(1).strip()
+        # A expressão é a do nosso próprio cabeçalho: só `n`, números e operadores entram.
+        self.assertRegex(rule, r'^[\s\d()n<>!=&|+\-*/%?:.]+$')
+        for n in (0, 1, 2, 3, 11, 100, 1000):
+            expected = int(eval(rule, {'__builtins__': {}}, {'n': n}))
+            self.assertEqual(i18n.LANGUAGES['pt_BR']['plural'](n), expected, (rule, n))
+
+    def test_english_rule_differs_from_portuguese_exactly_at_zero(self):
+        """Inglês não tem catálogo, mas a regra é a do idioma — e a diferença é o zero."""
+        for n in (1, 2, 3, 11, 100):
+            self.assertEqual(i18n.LANGUAGES['en']['plural'](n),
+                             i18n.LANGUAGES['pt_BR']['plural'](n), n)
+        self.assertEqual(i18n.LANGUAGES['pt_BR']['plural'](0), 0, 'zero é singular em pt_BR')
+        self.assertEqual(i18n.LANGUAGES['en']['plural'](0), 1, 'zero é plural em inglês')
+
+    def test_helper_answers_zero_one_and_two_in_both_languages(self):
+        cases = (
+            ('pt_BR', ('{days} dia', '{days} dia', '{days} dias')),
+            ('en', ('{days} days', '{days} day', '{days} days')),
+        )
+        for code, expected in cases:
+            i18n.activate(code)
+            for n, form in zip((0, 1, 2), expected):
+                self.assertEqual(i18n._n('{days} day', '{days} days', n), form, (code, n))
+        # E a regra da tabela escolhe a mesma forma que o gettext do catálogo: aplicada às
+        # formas reais de cada idioma, dá o que `_n` devolve — é o que garante que painel e
+        # janela não escolhem formas diferentes para o mesmo número.
+        for code, forms in (('pt_BR', ('{days} dia', '{days} dias')),
+                            ('en', ('{days} day', '{days} days'))):
+            i18n.activate(code)
+            for n in (0, 1, 2, 5, 11, 100):
+                self.assertEqual(i18n._n('{days} day', '{days} days', n),
+                                 forms[i18n.LANGUAGES[code]['plural'](n)], (code, n))
+
+
 class LanguageResolutionTests(unittest.TestCase):
     def tearDown(self):
         with patch.dict('os.environ', {'LANGUAGE': 'en', 'LC_ALL': 'en', 'LANG': 'en'}):
@@ -426,13 +478,30 @@ class LanguageResolutionTests(unittest.TestCase):
             self.assertEqual(i18n.resolve('pt_BR'), 'pt_BR')
             self.assertEqual(i18n.resolve('pt-BR'), 'pt_BR')
 
-    def test_environment_is_read_most_specific_first(self):
-        env = {'LANGUAGE': 'pt_BR:en', 'LC_ALL': 'en_US.UTF-8', 'LANG': 'en_US.UTF-8'}
-        with patch.dict('os.environ', env):
-            self.assertEqual(i18n.resolve(), 'pt_BR')
-        env = {'LC_ALL': 'pt_BR.UTF-8', 'LANG': 'en_US.UTF-8'}
-        with patch.dict('os.environ', env, clear=True):
-            self.assertEqual(i18n.resolve(), 'pt_BR')
+    def test_environment_follows_the_gettext_order(self):
+        """Ambiente misto resolve igual nos dois runtimes — é a regra do gettext.
+
+        `LANGUAGE` manda sozinha: definida, o gettext ignora LC_ALL, LC_MESSAGES e LANG. Sem
+        ela, vale a primeira variável definida. Antes o backend percorria as quatro e juntava
+        candidatos: com LANGUAGE=fr_FR e LC_ALL=pt_BR.UTF-8 o painel respondia inglês (regra do
+        GLib) e o backend respondia português — o mesmo usuário, dois idiomas, cada um numa
+        janela. O inglês aqui não é capricho: é o que o resto do desktop mostra nesse ambiente.
+        """
+        cases = (
+            ({'LANGUAGE': 'fr_FR', 'LC_ALL': 'pt_BR.UTF-8', 'LANG': 'pt_BR.UTF-8'}, 'en'),
+            ({'LANGUAGE': 'fr_FR:pt_BR', 'LANG': 'en_US.UTF-8'}, 'pt_BR'),
+            ({'LANGUAGE': 'pt_BR:en', 'LC_ALL': 'en_US.UTF-8', 'LANG': 'en_US.UTF-8'}, 'pt_BR'),
+            ({'LC_ALL': 'pt_BR.UTF-8', 'LANG': 'en_US.UTF-8'}, 'pt_BR'),
+            ({'LC_MESSAGES': 'pt_BR.UTF-8', 'LANG': 'en_US.UTF-8'}, 'pt_BR'),
+            ({'LANGUAGE': '   ', 'LANG': 'pt_BR.UTF-8'}, 'pt_BR'),
+            ({'LANG': 'pt_BR.UTF-8'}, 'pt_BR'),
+            ({'LANG': 'C'}, 'en'),
+            ({'LANG': 'pt_BR.UTF-8@euro'}, 'pt_BR'),
+            ({}, 'en'),
+        )
+        for env, expected in cases:
+            with patch.dict('os.environ', env, clear=True):
+                self.assertEqual(i18n.resolve(), expected, env)
 
     def test_language_without_catalog_falls_back_to_english(self):
         """Sem catálogo francês, a interface sai em inglês — não em francês pela metade."""
@@ -550,6 +619,49 @@ class CachedTextPolicyTests(unittest.TestCase):
         record = {'message_id': 'Update', 'message': 'texto gravado'}
         self.assertEqual(i18n.record_text(record, 'message_id', 'message_args', 'message'),
                          'Atualizar')
+
+    def test_identical_translation_is_an_entry_not_a_miss(self):
+        """Tradução idêntica ao original é entrada presente — não entrada ausente.
+
+        `{hours} h` está no catálogo com o mesmo texto nos dois idiomas. Comparar a tradução
+        com o msgid dava essa entrada como ausente: o registro sintético com `hours=3` e texto
+        residual `99 h` saía `99 h` no backend e `3 h` no painel. Quem decide é a presença da
+        entrada no catálogo, e aí o identificador com os argumentos vence nos dois runtimes.
+        """
+        catalog = i18n._load('pt_BR')
+        self.assertTrue(i18n._has_entry(catalog, '{hours} h'),
+                        'a premissa deste teste é a entrada existir com tradução idêntica')
+        self.assertEqual(catalog.gettext('{hours} h'), '{hours} h')
+        record = {'label_id': '{hours} h', 'label_args': {'hours': 3}, 'label': '99 h'}
+        for code, expected in (('pt_BR', '3 h'), ('en', '3 h')):
+            i18n.activate(code)
+            self.assertEqual(i18n.record_text(record, 'label_id', 'label_args', 'label'),
+                             expected, code)
+        record['label_args'] = {'hours': 1}
+        i18n.activate('pt_BR')
+        self.assertEqual(i18n.record_text(record, 'label_id', 'label_args', 'label'), '1 h')
+
+    def test_presence_check_reads_the_compiled_catalog(self):
+        """A checagem de presença lê o .mo de verdade, não uma lista escrita à mão.
+
+        Ela consulta o mapa interno do `GNUTranslations` (leitura apenas). Se o Python deixar
+        de expô-lo, a checagem responde "ausente" para tudo e este teste falha — em vez de a
+        interface perder o identificador e voltar ao texto gravado sem ninguém notar.
+        """
+        catalog = i18n._load('pt_BR')
+        for msgid in ('Update', 'Critical quota', '{hours} h'):
+            self.assertTrue(i18n._has_entry(catalog, msgid), msgid)
+        self.assertFalse(i18n._has_entry(catalog, 'This msgid is not in the catalog'))
+        # Idioma sem catálogo não tem entrada nenhuma: lá o identificador é a própria frase.
+        self.assertFalse(i18n._has_entry(None, 'Update'))
+        # Entrada com plural não vale como identificador: falta o número para escolher a
+        # forma, e devolver sempre a primeira diria "1 dia" no lugar de "3 dias".
+        self.assertFalse(i18n._has_entry(catalog, '{days} day'))
+        self.assertEqual(catalog.ngettext('{days} day', '{days} days', 3), '{days} dias')
+        plural_record = {'label_id': '{days} day', 'label_args': {},
+                         'label': '3 dias'}
+        self.assertEqual(i18n.record_text(plural_record, 'label_id', 'label_args', 'label'),
+                         '3 dias')
 
 
 class FormattingTests(unittest.TestCase):

@@ -29,14 +29,21 @@ function _(text) {
     return (table && typeof table.singles[text] === 'string') ? table.singles[text] : text;
 }
 
-// Plural do catálogo: o .mo guarda as formas separadas por NUL. A regra é a de duas formas
-// (1 -> primeira, resto -> segunda), que é a dos idiomas que este applet embarca; idioma
-// com outra regra precisa da sua própria, e o teste do catálogo avisa se aparecer.
+// Plural do catálogo: o .mo guarda as formas separadas por NUL, e a forma escolhida segue a
+// expressão `Plural-Forms` do cabeçalho do catálogo, espelhada aqui em backend/i18n.py
+// (`LANGUAGES[code]["plural"]`). Em pt_BR a expressão é `plural=(n > 1)`: zero é singular,
+// e um `n === 1` genérico devolveria o plural em "0 dia" — divergência que só aparece no
+// dia em que o painel mostrar uma frase com plural.
+const PLURAL_INDEX = {
+    pt_BR: n => (n > 1 ? 1 : 0),
+    en: n => (n === 1 ? 0 : 1),
+};
+
 function _n(singular, plural, n) {
-    const table = catalogFor(_language);
-    const forms = table && table.plurals[singular];
-    if (!forms || !forms.length) return Number(n) === 1 ? singular : plural;
-    return Number(n) === 1 ? forms[0] : (forms[1] !== undefined ? forms[1] : forms[0]);
+    const forms = (catalogFor(_language) || {plurals: {}}).plurals[singular];
+    const index = (PLURAL_INDEX[_language] || PLURAL_INDEX.en)(Number(n));
+    if (!forms || !forms.length) return index === 0 ? singular : plural;
+    return forms[index] !== undefined ? forms[index] : forms[0];
 }
 
 function _f(text, values) {
@@ -165,6 +172,21 @@ function normalizeTag(tag) {
     return '';
 }
 
+// Idioma da sessão, na ordem do gettext: `LANGUAGE` manda sozinho (lista separada por ':');
+// sem ela, vale a primeira variável definida entre LC_ALL, LC_MESSAGES e LANG. `GLib`
+// .get_language_names() segue a regra dele e num ambiente misto (LANGUAGE=fr_FR com
+// LC_ALL=pt_BR) devolvia só francês, enquanto o backend — que lia todas as variáveis —
+// respondia português: painel e janela em idiomas diferentes, cada um "certo".
+function envCandidates() {
+    const language = GLib.getenv('LANGUAGE');
+    if (language && language.trim()) return language.split(':').filter(part => part.trim());
+    for (const name of ['LC_ALL', 'LC_MESSAGES', 'LANG']) {
+        const value = GLib.getenv(name);
+        if (value && value.trim()) return [value];
+    }
+    return [];
+}
+
 function resolveLanguage(requested) {
     // Pedido explícito vence o ambiente sempre: `auto`/vazio seguem a sessão; qualquer outro
     // valor, ainda que sem catálogo, cai no inglês — nunca no idioma de quem estava logado.
@@ -172,8 +194,7 @@ function resolveLanguage(requested) {
         const wanted = normalizeTag(requested);
         return (wanted === 'en' || (wanted && hasCatalog(wanted))) ? wanted : 'en';
     }
-    const names = GLib.get_language_names ? GLib.get_language_names() : [];
-    for (const name of names) {
+    for (const name of envCandidates()) {
         const code = normalizeTag(name);
         if (code && (code === 'en' || hasCatalog(code))) return code;
     }

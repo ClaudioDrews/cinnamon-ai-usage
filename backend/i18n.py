@@ -39,6 +39,11 @@ LANGUAGES = {
         "time": "%H:%M",
         "money": "{value} {currency}",
         "months": (),
+        # Forma plural: índice da forma em `msgstr[n]`. Tem de ser a mesma regra do
+        # `Plural-Forms` do catálogo compilado — em pt_BR, `plural=(n > 1)`, então zero é
+        # singular. Vive aqui porque o painel não tem gettext e escolhe a forma em código;
+        # o teste compara esta tabela com o cabeçalho do .po.
+        "plural": lambda n: 0 if n <= 1 else 1,
     },
     "en": {
         "name": "English",
@@ -48,6 +53,7 @@ LANGUAGES = {
         "money": "{currency} {value}",
         "months": ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
+        "plural": lambda n: 0 if n == 1 else 1,
     },
 }
 
@@ -99,15 +105,31 @@ def normalize(tag) -> str:
 
 
 def env_candidates() -> list:
-    """Idiomas que o ambiente pede, do mais específico ao mais genérico."""
-    result = []
-    for name in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
-        value = os.environ.get(name, "")
-        for part in value.split(":"):
-            code = normalize(part)
-            if code and code not in result:
-                result.append(code)
-    return result
+    """Idiomas que o ambiente pede, na ordem do gettext, já normalizados para a chave interna.
+
+    `LANGUAGE` manda sozinho: quando está definida, o gettext **ignora** LC_ALL, LC_MESSAGES
+    e LANG. Sem ela, vale a primeira variável definida entre LC_ALL, LC_MESSAGES e LANG.
+    É a regra do GNU gettext — a mesma que o GLib usa no shell do Cinnamon e a que o
+    `gettext` do Python segue —, então painel, janelas e tela de preferências concordam no
+    mesmo ambiente. Antes isto percorria as quatro variáveis juntando candidatos, e num
+    ambiente misto (LANGUAGE=fr_FR com LC_ALL=pt_BR) o backend respondia português enquanto
+    o painel respondia inglês: o mesmo usuário, dois idiomas, cada um numa janela.
+
+    Idioma sem catálogo nesta casa sai da lista (vira string vazia ao normalizar): um idioma
+    que não sabemos falar não pode ser a resposta, e também não pode liberar o LC_ALL logo
+    abaixo — quem foi pedido foi ele.
+    """
+    language = os.environ.get("LANGUAGE", "")
+    if language.strip():
+        parts = [part for part in language.split(":") if part.strip()]
+    else:
+        parts = []
+        for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
+            value = os.environ.get(name, "")
+            if value.strip():
+                parts = [value]
+                break
+    return [code for code in (normalize(part) for part in parts) if code]
 
 
 def resolve(explicit=None) -> str:
@@ -206,6 +228,27 @@ def _f(text: str, **values) -> str:
     return text
 
 
+def _has_entry(catalog, msgid: str) -> bool:
+    """A entrada de forma única existe no catálogo compilado?
+
+    Comparar a tradução com o msgid **não** responde isso: há tradução legítima idêntica ao
+    original (`{hours} h`, nomes de idioma, siglas), e essa comparação classifica a entrada
+    como ausente — a apresentação então descarta o identificador e mostra o texto gravado,
+    no idioma da coleta antiga. O `_catalog` do `GNUTranslations` é o mapa msgid → msgstr
+    lido do `.mo`: consultado só em leitura, e a suíte tem teste que falha se o Python
+    deixar de expô-lo (é o tripé que segura esta dependência).
+
+    Entrada com plural fica no mapa sob chave `(msgid, forma)` e por isso **não** conta:
+    escolher a forma exige o número, que um registro gravado não traz — devolver sempre a
+    primeira forma diria "1 dia" onde a coleta gravou "3 dias". Nesse caso o texto gravado
+    é a resposta certa, e é a mesma decisão que o painel toma (`singles` no `applet.js`).
+    """
+    table = getattr(catalog, "_catalog", None)
+    if not isinstance(table, dict):
+        return False
+    return msgid in table
+
+
 def record_text(record, id_field: str = "message_id", args_field: str = "message_args",
                 text_field: str = "message") -> str:
     """Texto de um registro persistido, no idioma em vigor.
@@ -221,18 +264,19 @@ def record_text(record, id_field: str = "message_id", args_field: str = "message
     """
     if not isinstance(record, dict):
         return ""
-    ident = record.get(id_field)
-    if isinstance(ident, str) and ident:
-        catalog = _load(_state["code"])
-        if catalog is None:
-            # Idioma sem catálogo é o inglês, e o msgid já é o texto: a frase guardada
-            # pode estar em outro idioma, então quem manda é o identificador.
-            return _f(ident, **(record.get(args_field) or {}))
-        translated = catalog.gettext(ident)
-        if translated != ident:
-            return _f(translated, **(record.get(args_field) or {}))
     text = record.get(text_field)
-    return text if isinstance(text, str) else ""
+    text = text if isinstance(text, str) else ""
+    ident = record.get(id_field)
+    if not isinstance(ident, str) or not ident:
+        return text
+    catalog = _load(_state["code"])
+    if catalog is None:
+        # Idioma sem catálogo é o inglês, e o msgid já é o texto: a frase guardada pode
+        # estar em outro idioma, então quem manda é o identificador.
+        return _f(ident, **(record.get(args_field) or {}))
+    if not _has_entry(catalog, ident):
+        return text
+    return _f(catalog.gettext(ident), **(record.get(args_field) or {}))
 
 
 def _spec(code=None):

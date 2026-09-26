@@ -22,148 +22,148 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: applet/applet.js:324
+#: applet/applet.js:345
 msgid "Could not start the collector."
 msgstr "Não foi possível iniciar o coletor."
 
-#: applet/applet.js:358
+#: applet/applet.js:379
 msgid "Collection timed out."
 msgstr "Tempo limite da coleta excedido."
 
-#: applet/applet.js:358
+#: applet/applet.js:379
 msgid "Could not read the collector output."
 msgstr "Falha ao ler o coletor."
 
 # Applet (applet/applet.js)
-#: applet/applet.js:412
+#: applet/applet.js:433
 msgid "AI usage"
 msgstr "Uso de IA"
 
-#: applet/applet.js:419 applet/applet.js:547
+#: applet/applet.js:440 applet/applet.js:568
 msgid "{label}: {percent} used"
 msgstr "{label}: {percent} usado"
 
-#: applet/applet.js:422 applet/applet.js:564
+#: applet/applet.js:443 applet/applet.js:585
 msgid "{label}: {money}"
 msgstr "{label}: {money}"
 
-#: applet/applet.js:425
+#: applet/applet.js:446
 msgid "Not configured"
 msgstr "Não configurado"
 
-#: applet/applet.js:425
+#: applet/applet.js:446
 msgid "Unavailable"
 msgstr "Indisponível"
 
-#: applet/applet.js:426
+#: applet/applet.js:447
 msgid "Reading failed"
 msgstr "Falha na leitura"
 
-#: applet/applet.js:426
+#: applet/applet.js:447
 msgid "No reading"
 msgstr "Sem leitura"
 
-#: applet/applet.js:428
+#: applet/applet.js:449
 msgid " (stale reading)"
 msgstr " (leitura antiga)"
 
-#: applet/applet.js:431
+#: applet/applet.js:452
 msgid "Waiting for the first reading…"
 msgstr "Aguardando a primeira leitura…"
 
-#: applet/applet.js:432
+#: applet/applet.js:453
 msgid "Critical quota"
 msgstr "Cota crítica"
 
-#: applet/applet.js:432
+#: applet/applet.js:453
 msgid "Attention"
 msgstr "Atenção"
 
-#: applet/applet.js:435
+#: applet/applet.js:456
 msgid "Last collection: {time}"
 msgstr "Última coleta: {time}"
 
-#: applet/applet.js:437 applet/applet.js:497
+#: applet/applet.js:458 applet/applet.js:518
 msgid "Automatic collection paused"
 msgstr "Coleta automática pausada"
 
-#: applet/applet.js:438
+#: applet/applet.js:459
 msgid "Updating…"
 msgstr "Atualizando…"
 
-#: applet/applet.js:442 applet/applet.js:502
+#: applet/applet.js:463 applet/applet.js:523
 msgid "Reading failed: {services}"
 msgstr "Falha na leitura: {services}"
 
-#: applet/applet.js:444 applet/applet.js:505
+#: applet/applet.js:465 applet/applet.js:526
 msgid "Stale reading: {services}"
 msgstr "Leitura antiga: {services}"
 
-#: applet/applet.js:445
+#: applet/applet.js:466
 msgid "Click: recent · double-click: all"
 msgstr "Clique: recentes · clique duplo: todos"
 
-#: applet/applet.js:469
+#: applet/applet.js:490
 msgid "and {count} more"
 msgstr "e mais {count}"
 
-#: applet/applet.js:496
+#: applet/applet.js:517
 msgid "Five most recent · estimated usage"
 msgstr "Cinco mais recentes · uso estimado"
 
-#: applet/applet.js:498
+#: applet/applet.js:519
 msgid "Updating… Reopen to see the new reading."
 msgstr "Atualizando… Reabra para ver a nova leitura."
 
-#: applet/applet.js:500
+#: applet/applet.js:521
 msgid "Last values preserved."
 msgstr "Últimos valores preservados."
 
-#: applet/applet.js:507
+#: applet/applet.js:528
 msgid "No reading yet; use Update or See all."
 msgstr "Sem leitura ainda; use Atualizar ou Ver todos."
 
-#: applet/applet.js:511
+#: applet/applet.js:532
 msgid "{count} service(s) without a reading; see Credentials…"
 msgstr "{count} serviço(s) sem leitura; veja Credenciais…"
 
-#: applet/applet.js:513
+#: applet/applet.js:534
 msgid "See all services…"
 msgstr "Ver todos os serviços…"
 
-#: applet/applet.js:514
+#: applet/applet.js:535
 msgid "Update"
 msgstr "Atualizar"
 
-#: applet/applet.js:515
+#: applet/applet.js:536
 msgid "Credentials…"
 msgstr "Credenciais…"
 
-#: applet/applet.js:516
+#: applet/applet.js:537
 msgid "Settings…"
 msgstr "Configurações…"
 
-#: applet/applet.js:525
+#: applet/applet.js:546
 msgid "Could not run the action."
 msgstr "Não foi possível executar a ação."
 
-#: applet/applet.js:569
+#: applet/applet.js:590
 msgid "Stale reading — see details"
 msgstr "Leitura antiga — ver detalhes"
 
-#: applet/applet.js:569
+#: applet/applet.js:590
 msgid "No current reading"
 msgstr "Sem leitura atual"
 
-#: applet/applet.js:571
+#: applet/applet.js:592
 msgid "No observed use since installation"
 msgstr "Sem uso observado desde a instalação"
 
-#: applet/applet.js:579
+#: applet/applet.js:600
 msgid "Could not open the window."
 msgstr "Não foi possível abrir a janela."
 
-#: applet/applet.js:584
+#: applet/applet.js:605
 msgid "Could not open the credentials."
 msgstr "Não foi possível abrir as credenciais."
 
@@ -201,53 +201,53 @@ msgid "Failed to read the configuration or write the local cache."
 msgstr "Falha ao ler a configuração ou gravar o cache local."
 
 # Backend compartilhado (backend/i18n.py)
-#: backend/i18n.py:244 backend/i18n.py:262
+#: backend/i18n.py:288 backend/i18n.py:306
 msgid "unavailable"
 msgstr "indisponível"
 
-#: backend/i18n.py:255
+#: backend/i18n.py:299
 msgid "percentage unavailable"
 msgstr "percentual indisponível"
 
-#: backend/i18n.py:286 backend/i18n.py:298
+#: backend/i18n.py:330 backend/i18n.py:342
 msgid "unknown time"
 msgstr "horário desconhecido"
 
-#: backend/i18n.py:307
+#: backend/i18n.py:351
 msgid "unknown duration"
 msgstr "duração desconhecida"
 
-#: backend/i18n.py:309
+#: backend/i18n.py:353
 msgid "under 2 minutes"
 msgstr "menos de 2 minutos"
 
-#: backend/i18n.py:312
+#: backend/i18n.py:356
 #, python-brace-format
 msgid "{minutes} min"
 msgstr "{minutes} min"
 
-#: backend/i18n.py:317
+#: backend/i18n.py:361
 #, python-brace-format
 msgid "{hours} h {minutes} min"
 msgstr "{hours} h {minutes} min"
 
-#: backend/i18n.py:318
+#: backend/i18n.py:362
 #, python-brace-format
 msgid "{hours} h"
 msgstr "{hours} h"
 
-#: backend/i18n.py:320
+#: backend/i18n.py:364
 #, python-brace-format
 msgid "{days} day"
 msgid_plural "{days} days"
 msgstr[0] "{days} dia"
 msgstr[1] "{days} dias"
 
-#: backend/i18n.py:330
+#: backend/i18n.py:374
 msgid "now"
 msgstr "agora"
 
-#: backend/i18n.py:331
+#: backend/i18n.py:375
 #, python-brace-format
 msgid "{duration} ago"
 msgstr "há {duration}"
