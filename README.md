@@ -1,6 +1,6 @@
 # Uso de IA para Cinnamon
 
-Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
+Versão 0.2.0. Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
 
 - **Clique simples:** até cinco serviços, primeiro os com uso observado e depois os de leitura mais recente (quem não tem leitura não ocupa linha).
 - **Passe o mouse:** balão com resumo por serviço, horário da coleta e avisos.

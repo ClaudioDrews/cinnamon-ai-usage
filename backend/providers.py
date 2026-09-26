@@ -118,9 +118,12 @@ class NoRedirect(HTTPRedirectHandler):
         raise Unavailable("Redirecionamento inesperado; consulta interrompida.", "error")
 
 
+VERSION = "0.2.0"  # mesma versão de applet/metadata.json (o teste confere)
+
+
 def request(url, token=None, data=None, headers=None, local=False, timeout=8):
     # Caller URLs are fixed trusted endpoints; never follow redirects with credentials.
-    h = {"Accept": "application/json", "User-Agent": "cinnamon-ai-usage/0.1.0"}
+    h = {"Accept": "application/json", "User-Agent": f"cinnamon-ai-usage/{VERSION}"}
     if token:
         h["Authorization"] = "Bearer " + token
     h.update(headers or {})
@@ -213,7 +216,7 @@ def codex(config=None):
 
     try:
         send({"id": 1, "method": "initialize", "params": {
-            "clientInfo": {"name": "cinnamon-ai-usage", "version": "0.1.0"}}})
+            "clientInfo": {"name": "cinnamon-ai-usage", "version": VERSION}}})
         receive(1)
         send({"method": "initialized"})
         send({"id": 2, "method": "account/rateLimits/read"})

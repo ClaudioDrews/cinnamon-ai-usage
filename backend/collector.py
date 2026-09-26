@@ -164,22 +164,41 @@ def collect(force=False, ttl_override=None):
         return snapshot
 
 
+# Forma de cada conector na demonstração. O demo não pode afirmar o que o serviço não mede:
+# o Grok é pré-pago (saldo e créditos usados, sem janela de 5 h) e o OpenCode Go tem três
+# janelas. Antes tudo caía no mesmo ramo e a imagem de exemplo do repositório mentia.
+DEMO_SHAPES = {
+    "codex": [("primary", "Janela de 5 h", "quota", 18000),
+              ("secondary", "Semana", "quota", 604800)],
+    "claude": [("five_hour", "Janela de 5 h", "quota", 18000),
+               ("seven_day", "Semana", "quota", 604800)],
+    "meta": [("janela", "Janela de 5 h", "quota", 18000),
+             ("semanal", "Semana", "quota", 604800)],
+    "opencode": [("rolling", "Janela móvel", "quota", None),
+                 ("weekly", "Semana", "quota", 604800),
+                 ("monthly", "Mês", "quota", None)],
+    "antigravity": [("model:exemplo", "Modelo de exemplo", "quota", None)],
+    "grok": [("balance:USD", "Saldo pré-pago da API", "balance", None),
+             ("credits_used", "Créditos pré-pagos usados", "quota", None)],
+    "nous": [("total_usable_credits", "Saldo total disponível", "balance", None),
+             ("subscription_credits_remaining", "Saldo do plano", "balance", None)],
+    "deepseek": [("balance:USD", "Saldo disponível", "balance", None)],
+    "openrouter": [("usage_monthly", "Gasto no mês", "spend", None)],
+}
+
+
 def demo():
     items = []
     for i, id_ in enumerate(SERVICES):
-        if id_ in ("deepseek", "nous"):
-            metrics = [metric("balance", "Saldo disponível", "balance", value=12.4+i, currency="USD")]
-        elif id_ == "openrouter":
-            metrics = [metric("usage_monthly", "Gasto no mês", "spend", value=4.02, currency="USD")]
-        elif id_ in ("meta", "claude"):
-            metrics = [metric("janela", "Janela de 5 h", "quota", percent=12, window=18000,
-                              reset=time.time()+3600),
-                       metric("semanal", "Semana", "quota", percent=45, window=604800,
-                              reset=time.time()+86400)]
-        else:
-            metrics = [metric("primary", "Janela de 5 h" if id_ != "antigravity" else "Modelo de exemplo",
-                       "quota", percent=25+i*8, window=18000 if id_ != "antigravity" else None,
-                       reset=time.time()+3600)]
+        metrics = []
+        for position, (metric_id, label, kind, window) in enumerate(DEMO_SHAPES.get(id_, [])):
+            if kind in ("balance", "spend"):
+                metrics.append(metric(metric_id, label, kind, value=4.02 + i + position,
+                                      currency="USD"))
+                continue
+            metrics.append(metric(metric_id, label, "quota",
+                                  percent=min(92, 12 + i * 7 + position * 9), window=window,
+                                  reset=time.time() + 3600 if window else None))
         item = service(id_, source="Simulação — nenhum dado real", metrics=metrics)
         item.update(last_used_at=stamp(time.time()-i*900), recency_basis="observed_change")
         items.append(item)

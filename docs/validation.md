@@ -1,4 +1,4 @@
-# Validação da versão 0.1.0 — 25 e 26/09/2026
+# Validação da versão 0.2.0 — 25 e 26/09/2026
 
 ## Resultado
 

@@ -579,6 +579,31 @@ class CredentialFileTests(unittest.TestCase):
             self.assertEqual(p.credentials.read_file(str(Path(tmp)/'nao-existe'), motivos), {})
 
 
+class DemoAndVersionTests(unittest.TestCase):
+    """A demonstração não pode afirmar o que o serviço não mede, e a versão é uma só."""
+
+    def test_demo_follows_each_connector_shape(self):
+        por_id = {s['id']: s for s in c.demo()['services']}
+        grok = por_id['grok']['metrics']
+        self.assertIn('balance', [m['kind'] for m in grok])
+        self.assertFalse([m for m in grok if m['window_seconds'] == 18000])  # não é pré-pago com 5 h
+        self.assertEqual([m['label'] for m in por_id['opencode']['metrics']],
+                         ['Janela móvel', 'Semana', 'Mês'])
+        self.assertEqual(por_id['openrouter']['metrics'][0]['kind'], 'spend')
+        for servico in c.demo()['services']:
+            self.assertTrue(servico['metrics'], servico['id'])
+            for metrica in servico['metrics']:
+                if metrica['kind'] == 'quota':
+                    self.assertIsNotNone(metrica['used_percent'])
+
+    def test_version_matches_everywhere(self):
+        raiz = Path(__file__).resolve().parents[1]
+        self.assertEqual(json.loads((raiz/'applet/metadata.json').read_text())['version'], p.VERSION)
+        self.assertIn(p.VERSION, (raiz/'docs/validation.md').read_text())
+        self.assertIn(p.VERSION, (raiz/'README.md').read_text())
+        self.assertNotIn('0.1.0', (raiz/'backend/providers.py').read_text())
+
+
 class LockNoticeTests(unittest.TestCase):
     """Trava ocupada é aviso, não falha: o applet precisa distinguir "pulei" de "falhei"."""
 
