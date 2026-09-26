@@ -47,6 +47,13 @@ META_MIN_INTERVAL = 900
 QUOTA_FAILURE_MESSAGE = i18n.N_(
     "Failed to query the service; the previous reading is kept.")
 
+# Nota pública de um serviço: a frase fixa é o msgid e os trechos que dependem da resposta entram
+# em ``{details}``. A nota fica no cache do contrato, então o que se grava é o identificador — o
+# texto gravado é só o recurso de quem não tem catálogo (docs/i18n.md).
+META_NOTE_ID = i18n.N_("Application subscription; not API usage billing.{details}")
+CLAUDE_NOTE_ID = i18n.N_("Claude Code subscription; not API usage billing. Connector not verified "
+                         "on a real account.{details}")
+
 
 class Unavailable(Exception):
     """Serviço indisponível.
@@ -97,6 +104,17 @@ def stamp(value=None):
 
 def text(value, default="", limit=100):
     return re.sub(r"[\x00-\x1f\x7f]", " ", str(value or default))[:limit]
+
+
+def window_hours(minutes):
+    """Horas de uma janela, no formato do idioma em vigor.
+
+    O número entra **cru** no marcador do msgid (``{hours}``): quem o escreve é esta casa, com o
+    separador decimal de ``i18n``, e não ``f"{horas:g}"``. Número já formatado dentro de uma frase
+    em outro idioma é justamente o defeito que o catálogo evita (docs/i18n.md).
+    """
+    hours = float(minutes) / 60
+    return i18n.number(hours, 0 if hours.is_integer() else 1)
 
 
 def metric(id_, label="", kind="", *, label_id=None, label_args=None,
@@ -155,13 +173,13 @@ def require_key(name, config=None):
     """Valor da variável pelo cofre, arquivo indicado ou ambiente."""
     value = credentials.resolve([name], config).get(name)
     if not value:
-        raise Unavailable("Credencial não configurada.", "unconfigured")
+        raise Unavailable(i18n.N_("Credentials not configured."), "unconfigured")
     return value
 
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise Unavailable("Redirecionamento inesperado; consulta interrompida.", "error")
+        raise Unavailable(i18n.N_("Unexpected redirect; consultation interrupted."), "error")
 
 
 VERSION = "0.2.0"  # mesma versão de applet/metadata.json (o teste confere)
@@ -185,18 +203,22 @@ def request(url, token=None, data=None, headers=None, local=False, timeout=8):
         with build_opener(*handlers).open(Request(url, data=body, headers=h), timeout=timeout) as response:
             raw = response.read(2_000_001)
             if len(raw) > 2_000_000:
-                raise Unavailable("Resposta maior que o limite permitido.", "error")
+                raise Unavailable(i18n.N_("Response larger than the allowed limit."), "error")
             return json.loads(raw)
     except HTTPError as e:
-        messages = {401: "Login expirado ou credencial recusada.",
-                    403: "Acesso à consulta recusado (HTTP 403).",
-                    404: "Fonte de uso não encontrada (HTTP 404).",
-                    429: "Limite de consultas; aguarde a próxima atualização."}
-        raise Unavailable(messages.get(e.code, f"Falha na consulta (HTTP {e.code})."), "error") from None
+        # O msgid é o identificador da falha: o texto sai no idioma da coleta e o identificador
+        # fica ao lado, para a leitura reaproveitada reaparecer no idioma em vigor (docs/i18n.md).
+        messages = {401: i18n.N_("Login expired or credentials refused."),
+                    403: i18n.N_("Consultation access refused (HTTP 403)."),
+                    404: i18n.N_("Usage source not found (HTTP 404)."),
+                    429: i18n.N_("Consultation limit reached; wait for the next update.")}
+        raise Unavailable(messages.get(e.code) or i18n.N_("Consultation failed (HTTP {code})."),
+                          "error", {"code": e.code}) from None
     except (URLError, TimeoutError, OSError):
-        raise Unavailable("Não foi possível consultar o serviço; verifique a conexão.", "error") from None
+        raise Unavailable(i18n.N_("Could not query the service; check the connection."),
+                          "error") from None
     except (ValueError, TypeError):
-        raise Unavailable("Formato de resposta não reconhecido.", "error") from None
+        raise Unavailable(i18n.N_("Unrecognized response format."), "error") from None
 
 
 def parse_codex(payload):
@@ -213,10 +235,22 @@ def parse_codex(payload):
                 continue
             minutes = number(part.get("windowDurationMins"))
             window = int(minutes * 60) if minutes and minutes > 0 else None
-            label = f"Janela de {minutes / 60:g} h" if minutes else "Cota"
+            label_id, label_args = i18n.N_("Quota"), {}
+            if minutes:
+                label_id = i18n.N_("Window of {hours} h")
+                label_args = {"hours": window_hours(minutes)}
             if len(buckets) > 1:
-                label = f"{text(bucket.get('limitName') or bucket_id)} · {label}"
-            out.append(metric(f"{bucket_id}:{key}", label, "quota", percent=part["usedPercent"],
+                # O nome do balde é dado da resposta e entra **cru**, como argumento: texto já
+                # traduzido dentro de um argumento ficaria no idioma da coleta quando a interface
+                # estivesse em outro. Por isso a frase que junta os dois é um msgid próprio.
+                name = text(bucket.get("limitName") or bucket_id)
+                if minutes:
+                    label_id = i18n.N_("{name} · {hours} h window")
+                    label_args = {"name": name, "hours": window_hours(minutes)}
+                else:
+                    label_id, label_args = i18n.N_("{name} · quota"), {"name": name}
+            out.append(metric(f"{bucket_id}:{key}", label_id=label_id, label_args=label_args,
+                              kind="quota", percent=part["usedPercent"],
                               window=window, reset=part.get("resetsAt")))
     return out
 
@@ -224,7 +258,7 @@ def parse_codex(payload):
 def codex(config=None):
     executable = shutil.which("codex")
     if not executable:
-        raise Unavailable("Codex CLI não encontrado.", "unconfigured")
+        raise Unavailable(i18n.N_("Codex CLI not found."), "unconfigured")
     auth = read_json(Path(os.environ.get("CODEX_HOME", str(Path.home()/'.codex'))) / "auth.json")
     identity = (auth.get("tokens") or {}).get("account_id") or "codex-local"
     p = subprocess.Popen([executable, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -248,7 +282,8 @@ def codex(config=None):
                     continue
                 if obj.get("id") == id_:
                     if "error" in obj:
-                        raise Unavailable("Codex não disponibilizou cotas; confira o login do CLI.", "error")
+                        raise Unavailable(
+                            i18n.N_("Codex did not provide quotas; check the CLI login."), "error")
                     return obj.get("result", {})
             if not selector.select(max(0, deadline-time.monotonic())):
                 break
@@ -258,7 +293,7 @@ def codex(config=None):
             buffer += chunk
             if len(buffer) > 2_000_000:
                 break
-        raise Unavailable("Tempo limite na consulta ao Codex.", "error")
+        raise Unavailable(i18n.N_("Timeout querying Codex."), "error")
 
     try:
         send({"id": 1, "method": "initialize", "params": {
@@ -276,7 +311,7 @@ def codex(config=None):
             p.kill(); p.wait()
         p.stdin.close(); p.stdout.close()
     if not metrics:
-        raise Unavailable("Login atual não retornou cotas do Codex.")
+        raise Unavailable(i18n.N_("The current login did not return Codex quotas."))
     return service("codex", source="Codex app-server", metrics=metrics, identity=identity)
 
 
@@ -285,30 +320,37 @@ def parse_openrouter(payload):
     out = []
     limit, remaining = number(d.get("limit")), number(d.get("limit_remaining"))
     if limit is not None and limit > 0 and remaining is not None:
-        label = "Limite da chave" + (f" ({text(d['limit_reset'])})" if d.get("limit_reset") else "")
-        out.append(metric("limit", label, "quota", percent=100*(limit-remaining)/limit))
-    for k, label in [("usage_monthly", "Gasto no mês"), ("usage", "Gasto acumulado da chave")]:
+        # A data de reset é dado da resposta: entra como argumento do msgid, nunca dentro dele.
+        if d.get("limit_reset"):
+            out.append(metric("limit", label_id=i18n.N_("Key limit ({reset})"),
+                              label_args={"reset": text(d["limit_reset"])}, kind="quota",
+                              percent=100*(limit-remaining)/limit))
+        else:
+            out.append(metric("limit", label_id=i18n.N_("Key limit"), kind="quota",
+                              percent=100*(limit-remaining)/limit))
+    for k, label_id in (("usage_monthly", i18n.N_("Monthly spend")),
+                        ("usage", i18n.N_("Cumulative key spend"))):
         if number(d.get(k)) is not None:
-            out.append(metric(k, label, "spend", value=d[k], currency="USD"))
+            out.append(metric(k, label_id=label_id, kind="spend", value=d[k], currency="USD"))
     return out
 
 
 def openrouter(config=None):
     key = require_key("OPENROUTER_API_KEY", config)
-    return service("openrouter", source="OpenRouter · chave", identity=key,
+    return service("openrouter", source=i18n._("OpenRouter · key"), identity=key,
                    metrics=parse_openrouter(request("https://openrouter.ai/api/v1/key", key)))
 
 
 def parse_deepseek(payload):
-    return [metric("balance:"+str(d.get("currency")), "Saldo disponível", "balance",
-                   value=d["total_balance"], currency=d.get("currency"))
+    return [metric("balance:"+str(d.get("currency")), label_id=i18n.N_("Available balance"),
+                   kind="balance", value=d["total_balance"], currency=d.get("currency"))
             for d in payload.get("balance_infos", []) if number(d.get("total_balance")) is not None
             and d.get("currency") in ("USD", "CNY")]
 
 
 def deepseek(config=None):
     key = require_key("DEEPSEEK_API_KEY", config)
-    return service("deepseek", source="DeepSeek · saldo", identity=key,
+    return service("deepseek", source=i18n._("DeepSeek · balance"), identity=key,
                    metrics=parse_deepseek(request("https://api.deepseek.com/user/balance", key)))
 
 
@@ -320,15 +362,15 @@ def parse_nous(payload):
     purchased = number(access.get("purchased_credits_remaining"))
     out = []
     if total is not None:
-        out.append(metric("total_usable_credits", "Saldo total disponível", "balance",
-                          value=total, currency="USD"))
+        out.append(metric("total_usable_credits", label_id=i18n.N_("Total available balance"),
+                          kind="balance", value=total, currency="USD"))
     # Saldo do plano igual ao total é a mesma informação: uma linha só.
     if plan_balance is not None and (total is None or plan_balance != total):
-        out.append(metric("subscription_credits_remaining", "Saldo do plano", "balance",
-                          value=plan_balance, currency="USD"))
+        out.append(metric("subscription_credits_remaining", label_id=i18n.N_("Plan balance"),
+                          kind="balance", value=plan_balance, currency="USD"))
     if purchased:
-        out.append(metric("purchased_credits_remaining", "Saldo de recargas", "balance",
-                          value=purchased, currency="USD"))
+        out.append(metric("purchased_credits_remaining", label_id=i18n.N_("Prepaid credit balance"),
+                          kind="balance", value=purchased, currency="USD"))
     period_end = (payload.get("subscription") or {}).get("current_period_end")
     if period_end:
         for item in out:
@@ -340,9 +382,9 @@ def parse_nous(payload):
 def nous(config=None):
     token = credentials.service_value("nous", config) or credentials.oauth_token("nous", config)
     if not token:
-        raise Unavailable("Token do Nous Portal não configurado.", "unconfigured")
+        raise Unavailable(i18n.N_("Nous Portal token not configured."), "unconfigured")
     payload = request("https://portal.nousresearch.com/api/oauth/account", token)
-    return service("nous", source="Nous Portal · token OAuth", metrics=parse_nous(payload),
+    return service("nous", source=i18n._("Nous Portal · OAuth token"), metrics=parse_nous(payload),
                    identity=(payload.get("organisation") or {}).get("id"))
 
 
@@ -350,26 +392,29 @@ def parse_go(payload):
     out = []
     # Observed read-only endpoint, 2026-09-25; no undocumented fields guessed as zeros.
     usage = payload.get("usage") or {}
-    for key, label, seconds in [("rolling", "Janela móvel", None), ("weekly", "Semana", 604800),
-                                ("monthly", "Mês", None)]:
+    for key, label_id, seconds in (("rolling", i18n.N_("Rolling window"), None),
+                                   ("weekly", i18n.N_("Week"), 604800),
+                                   ("monthly", i18n.N_("Month"), None)):
         part = usage.get(key)
         if not isinstance(part, dict):
             continue
         pct = number(part.get("percent"))
         if pct is not None:
-            out.append(metric(key, label, "quota", percent=pct, window=seconds, reset=part.get("resetsAt")))
+            out.append(metric(key, label_id=label_id, kind="quota", percent=pct, window=seconds,
+                              reset=part.get("resetsAt")))
     return out
 
 
 def opencode(config=None):
     token = credentials.service_value("opencode", config)
     if not token:
-        raise Unavailable("Chave OpenCode Go não configurada.", "unconfigured")
+        raise Unavailable(i18n.N_("OpenCode Go key not configured."), "unconfigured")
     payload = request("https://opencode.ai/zen/go/v1/usage", token)
     metrics = parse_go(payload)
     if not metrics:
-        raise Unavailable("Resposta Go sem cotas reconhecidas; conector experimental.")
-    return service("opencode", source="OpenCode Go · uso (experimental)", metrics=metrics, identity=token)
+        raise Unavailable(i18n.N_("Go response without recognized quotas; experimental connector."))
+    return service("opencode", source=i18n._("OpenCode Go · usage (experimental)"),
+                   metrics=metrics, identity=token)
 
 
 def parse_grok(payload):
@@ -383,7 +428,7 @@ def parse_grok(payload):
     """
     total = number((payload.get("total") or {}).get("val"))
     if total is None:
-        raise Unavailable("Saldo xAI não reconhecido.")
+        raise Unavailable(i18n.N_("Unrecognized xAI balance."))
     concedidos = usados = 0.0
     for mudanca in payload.get("changes") or []:
         valor = number((mudanca.get("amount") or {}).get("val"))
@@ -391,11 +436,11 @@ def parse_grok(payload):
             continue
         concedidos += -valor if valor < 0 else 0.0
         usados += valor if valor > 0 else 0.0
-    metrics = [metric("balance", "Saldo pré-pago da API", "balance",
+    metrics = [metric("balance", label_id=i18n.N_("API prepaid balance"), kind="balance",
                       value=-total / 100, currency="USD")]
     if concedidos > 0 and usados > 0:
-        metrics.append(metric("credits_used", "Créditos pré-pagos usados", "quota",
-                              percent=100 * usados / concedidos,
+        metrics.append(metric("credits_used", label_id=i18n.N_("Prepaid credits used"),
+                              kind="quota", percent=100 * usados / concedidos,
                               value=usados / 100, currency="USD"))
     return metrics
 
@@ -403,15 +448,16 @@ def parse_grok(payload):
 def grok(config):
     key = credentials.service_value("grok", config)
     if not key:
-        raise Unavailable("Chave de gerenciamento da xAI não configurada.", "unconfigured")
+        raise Unavailable(i18n.N_("xAI management key not configured."), "unconfigured")
     team = (config.get("grok") or {}).get("team_id") or credentials.setting_value("grok", config) or ""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(team)):
-        raise Unavailable("Informe grok.team_id na configuração ou XAI_TEAM_ID junto das "
-                          "credenciais para consultar a API xAI.", "unconfigured")
+        raise Unavailable(i18n.N_("Set grok.team_id in the configuration or XAI_TEAM_ID together "
+                                  "with the credentials to query the xAI API."), "unconfigured")
     payload = request(f"https://management-api.x.ai/v1/billing/teams/{team}/prepaid/balance", key)
-    return service("grok", source="xAI Management API · não inclui assinatura Grok",
-                   message="A xAI registra recargas como valor negativo em total.val; o saldo "
-                           "exibido é o crédito disponível.",
+    return service("grok",
+                   source=i18n._("xAI Management API · does not include the Grok subscription"),
+                   message_id=i18n.N_("xAI records prepaid credits as a negative value in total.val; "
+                                      "the displayed balance is the available credit."),
                    identity=team, metrics=parse_grok(payload))
 
 
@@ -426,11 +472,12 @@ def parse_antigravity(payload):
     out = []
     plan = user.get("planStatus") or {}
     info = plan.get("planInfo") or {}
-    for key, label in (("Prompt", "Créditos de prompts"), ("Flow", "Créditos de fluxo")):
+    for key, label_id in (("Prompt", i18n.N_("Prompt credits")), ("Flow", i18n.N_("Flow credits"))):
         total = number(info.get(f"monthly{key}Credits"))
         remaining = number(plan.get(f"available{key}Credits"))
         if total and total > 0 and remaining is not None:
-            out.append(metric(key.lower(), label, "quota", percent=100 * (1 - remaining / total)))
+            out.append(metric(key.lower(), label_id=label_id, kind="quota",
+                              percent=100 * (1 - remaining / total)))
     configs = (user.get("cascadeModelConfigData") or {}).get("clientModelConfigs") or []
     for index, config in enumerate(configs):
         quota = config.get("quotaInfo") or {}
@@ -439,9 +486,14 @@ def parse_antigravity(payload):
             continue
         name = (config.get("label") or config.get("modelLabel")
                 or (config.get("modelOrAlias") or {}).get("model"))
-        label = text(name, f"Modelo {index + 1}")
+        # Nome de modelo é dado do serviço; sem nome, o rótulo é texto nosso e vai com
+        # identificador, porque rótulo fica no cache e é exibido pelo identificador.
+        tem_nome = bool(name)
+        label = text(name, i18n._f(i18n._("Model {number}"), number=index + 1))
         out.append(metric("model:" + label, label, "quota", percent=(1 - fraction) * 100,
-                          reset=quota.get("resetTime")))
+                          reset=quota.get("resetTime"),
+                          label_id=None if tem_nome else i18n.N_("Model {number}"),
+                          label_args=None if tem_nome else {"number": index + 1}))
     return out
 
 
@@ -465,7 +517,7 @@ def antigravity(config=None):
         except OSError:
             continue
     if not candidate:
-        raise Unavailable("Abra o Antigravity para consultar as cotas locais.")
+        raise Unavailable(i18n.N_("Open Antigravity to consult the local quotas."))
     pid, opts = candidate
     ports = set()
     if shutil.which("ss"):
@@ -494,11 +546,12 @@ def antigravity(config=None):
                 try:
                     metrics = parse_antigravity(request(base+method, data=body, headers=headers, local=True, timeout=3))
                     if metrics:
-                        return service("antigravity", source="Antigravity · servidor local (experimental)", metrics=metrics,
-                                       identity="antigravity:"+pid)
+                        return service("antigravity",
+                                       source=i18n._("Antigravity · local server (experimental)"),
+                                       metrics=metrics, identity="antigravity:"+pid)
                 except Unavailable:
                     continue
-    raise Unavailable("Servidor local encontrado, mas não retornou cotas reconhecidas.")
+    raise Unavailable(i18n.N_("Local server found, but it did not return recognized quotas."))
 
 
 def meta_login_path(config=None):
@@ -681,8 +734,9 @@ def quota_deferred(interval):
     """Erro honesto para a consulta adiada pelo intervalo mínimo, sem repetir a chamada."""
     minutos = max(1, round(interval/60))
     return Unavailable(
-        f"Consulta adiada: já houve tentativa nos últimos {minutos} min e o intervalo mínimo "
-        "entre chamadas ainda não passou; a leitura anterior é mantida.", "unavailable")
+        i18n.N_("Consultation deferred: there was already an attempt in the last {minutes} min "
+                "and the minimum interval between calls has not passed yet; the previous reading "
+                "is kept."), "unavailable", {"minutes": minutos})
 
 
 def meta_cache_path():
@@ -713,30 +767,52 @@ def parse_meta(payload):
     percent = number(window.get("used_percent"))
     if percent is not None:
         minutes = number(window.get("window_duration_mins"))
-        out.append(metric("janela", f"Janela de {minutes/60:g} h" if minutes else "Janela atual",
-                          "quota", percent=percent,
+        label_id, label_args = i18n.N_("Current window"), {}
+        if minutes:
+            label_id, label_args = i18n.N_("Window of {hours} h"), {"hours": window_hours(minutes)}
+        out.append(metric("janela", label_id=label_id, label_args=label_args, kind="quota",
+                          percent=percent,
                           window=int(minutes*60) if minutes and minutes > 0 else None,
                           reset=window.get("resets_at")))
     weekly = usage.get("weekly") or {}
     percent = number(weekly.get("used_percent"))
     if percent is not None:
-        out.append(metric("semanal", "Semana", "quota", percent=percent, window=604800,
-                          reset=weekly.get("resets_at")))
+        out.append(metric("semanal", label_id=i18n.N_("Week"), kind="quota", percent=percent,
+                          window=604800, reset=weekly.get("resets_at")))
     return out
 
 
-def meta_message(payload):
-    """Nota pública do serviço: plano, aviso de percentual acima de 100% e origem do dado."""
+def meta_note_args(payload):
+    """Trechos opcionais da nota da assinatura, como argumentos do identificador.
+
+    Plano e aviso de percentual acima de 100% existem ou não conforme a resposta, então entram em
+    ``{details}`` em vez de costurados dentro do msgid: a nota fica no cache, e o que fica no cache
+    se exibe pelo identificador (docs/i18n.md, "Textos que ficam no cache").
+    """
     usage = payload.get("subs_usage") or {}
-    partes = ["Assinatura do aplicativo; não é a cobrança por uso da API."]
+    partes = []
     plano = text(payload.get("subs_tier_name"), "")
     if plano:
-        partes.append(f"Plano: {plano}.")
+        partes.append(i18n._f(i18n._("Plan: {plan}."), plan=plano))
     relatado = [number((usage.get(k) or {}).get("used_percent")) for k in ("window", "weekly")]
     acima = [p for p in relatado if p is not None and p > 100]
     if acima:
-        partes.append(f"A Meta relatou {max(acima):g}% de uso; a barra do applet vai até 100%.")
-    return " ".join(partes)
+        valor = max(acima)
+        # Percentual relatado é dado: quem o escreve é i18n, com o separador do idioma em vigor.
+        texto = i18n.number(valor, 0 if float(valor).is_integer() else 1)
+        partes.append(i18n._f(
+            i18n._("Meta reported {percent}% usage; the applet bar stops at 100%."), percent=texto))
+    details = " ".join(partes)
+    return {"details": (" " + details) if details else ""}
+
+
+def meta_message(payload):
+    """Nota pública do serviço no idioma em vigor: plano, aviso acima de 100% e origem do dado.
+
+    É o texto (recurso de quem não tem catálogo nenhum); o identificador da mesma frase é
+    ``META_NOTE_ID``, e é ele que fica no registro, ao lado do texto.
+    """
+    return i18n._f(i18n._(META_NOTE_ID), **meta_note_args(payload))
 
 
 def meta(config=None):
@@ -744,10 +820,10 @@ def meta(config=None):
     path = meta_login_path(config)
     token = credentials.oauth_token("meta", {"token_files": {"meta": str(path)}})
     if not token:
-        raise Unavailable("Login do Muse Code não encontrado; rode `muse login` para ler a "
-                          "assinatura da Meta.", "unconfigured")
+        raise Unavailable(i18n.N_("Muse Code login not found; run `muse login` to read the Meta "
+                                  "subscription."), "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
-    source = "Muse Code · assinatura da Meta"
+    source = i18n._("Muse Code · Meta subscription")
     interval = meta_interval(config)
     cached = meta_read_cache(config, identity)
     if cached:
@@ -771,14 +847,18 @@ def meta(config=None):
     if not metrics:
         # Mesma regra do Claude: resposta sem os percentuais é tentativa falha registrada, e não
         # uma leitura boa que reaparece como "atualização pendente" na rodada seguinte.
-        erro = Unavailable("A Meta respondeu sem os percentuais da assinatura; rode `diag meta` "
-                           "e relate o resultado no GitHub para ajustar o conector.", "error")
+        erro = Unavailable(i18n.N_("Meta answered without the subscription percentages; run "
+                                   "`diag meta` and report the result on GitHub to adjust the "
+                                   "connector."), "error")
         quota_mark_failure("meta", identity, str(erro),
                            getattr(erro, "message_args", None))
         raise erro
     meta_write_cache(identity, read_at, metrics)
+    # O texto é o recurso de quem não tem catálogo; o identificador é o que a interface usa, e os
+    # dois seguem no registro (docs/i18n.md).
     return service("meta", source=source, metrics=metrics, identity=identity,
-                   message=meta_message(payload))
+                   message=meta_message(payload), message_id=META_NOTE_ID,
+                   message_args=meta_note_args(payload))
 
 
 def claude_login_path(config=None):
@@ -803,9 +883,16 @@ def claude_interval(config=None):
     return max(120, min(86400, value)) if value else CLAUDE_MIN_INTERVAL
 
 
-CLAUDE_WINDOWS = {"session": ("janela", "Janela de 5 h", 18000),
-                  "weekly_all": ("semanal", "Semana", 604800),
-                  "weekly_scoped": ("semanal:", "Semana: ", 604800)}
+# Janelas conhecidas da assinatura, por tipo: identificador do contrato, msgid do rótulo,
+# argumentos do rótulo e duração em segundos. O rótulo vai por identificador porque fica no cache.
+CLAUDE_WINDOWS = {"session": ("janela", i18n.N_("Window of {hours} h"), {"hours": 5}, 18000),
+                  "weekly_all": ("semanal", i18n.N_("Week"), {}, 604800),
+                  # A janela por modelo monta o próprio rótulo (``Week · {model}``); este é a
+                  # mesma janela sem o modelo.
+                  "weekly_scoped": ("semanal:", i18n.N_("Week"), {}, 604800)}
+
+# Objetos planos da resposta, com a janela de cada tipo.
+CLAUDE_FLAT_WINDOWS = (("five_hour", "session"), ("seven_day", "weekly_all"))
 
 
 def parse_claude(payload):
@@ -819,11 +906,12 @@ def parse_claude(payload):
     aparece no diagnóstico, e um valor fracionário seria sub-relatado, não inflado.
     """
     found = {}
-    for key, id_, label, window in (("five_hour", "janela", "Janela de 5 h", 18000),
-                                    ("seven_day", "semanal", "Semana", 604800)):
+    for key, kind in CLAUDE_FLAT_WINDOWS:
         part = payload.get(key)
         if isinstance(part, dict) and number(part.get("utilization")) is not None:
-            found[id_] = metric(id_, label, "quota", percent=part["utilization"], window=window,
+            id_, label_id, label_args, window = CLAUDE_WINDOWS[kind]
+            found[id_] = metric(id_, label_id=label_id, label_args=label_args, kind="quota",
+                                percent=part["utilization"], window=window,
                                 reset=part.get("resets_at"))
     for entry in payload.get("limits") or []:
         if not isinstance(entry, dict):
@@ -833,26 +921,38 @@ def parse_claude(payload):
                          else entry.get("utilization"))
         if not kind or percent is None or kind not in CLAUDE_WINDOWS:
             continue
-        id_, label, window = CLAUDE_WINDOWS[kind]
+        id_, label_id, label_args, window = CLAUDE_WINDOWS[kind]
         if kind == "weekly_scoped":
             model = text(((entry.get("scope") or {}).get("model") or {}).get("display_name"), "")
             if not model:
                 continue  # janela por modelo sem nome: não inventar rótulo
-            id_, label, window = f"semanal:{model}", f"Semana · {model}", 604800
-        found[id_] = metric(id_, label, "quota", percent=percent, window=window,
-                            reset=entry.get("resets_at"))
+            id_, window = f"semanal:{model}", 604800
+            # O nome do modelo é dado; a frase que o junta à janela é msgid, e o modelo, argumento.
+            label_id, label_args = i18n.N_("Week · {model}"), {"model": model}
+        found[id_] = metric(id_, label_id=label_id, label_args=label_args, kind="quota",
+                            percent=percent, window=window, reset=entry.get("resets_at"))
     return list(found.values())
 
 
-def claude_message(payload, oauth):
-    """Nota pública do serviço: o que é a assinatura, plano e origem não verificada."""
-    partes = ["Assinatura do Claude Code; não é a cobrança por uso da API.",
-              "Conector não verificado em conta real."]
+def claude_note_args(oauth):
+    """Trechos opcionais da nota: plano e tier do login, como argumentos do identificador."""
     plano = text(oauth.get("subscriptionType"), "") if isinstance(oauth, dict) else ""
     tier = text(oauth.get("rateLimitTier"), "") if isinstance(oauth, dict) else ""
-    if plano or tier:
-        partes.append("Plano: " + " · ".join(p for p in (plano, tier) if p) + ".")
-    return " ".join(partes)
+    if plano and tier:
+        parte = i18n._f(i18n._("Plan: {plan} · {tier}."), plan=plano, tier=tier)
+    elif plano or tier:
+        parte = i18n._f(i18n._("Plan: {plan}."), plan=plano or tier)
+    else:
+        parte = ""
+    return {"details": (" " + parte) if parte else ""}
+
+
+def claude_message(payload, oauth):
+    """Nota pública do serviço no idioma em vigor: o que é a assinatura, plano e origem.
+
+    O identificador da mesma frase é ``CLAUDE_NOTE_ID``; é ele que fica no registro.
+    """
+    return i18n._f(i18n._(CLAUDE_NOTE_ID), **claude_note_args(oauth))
 
 
 def claude(config=None):
@@ -862,7 +962,7 @@ def claude(config=None):
     oauth = oauth if isinstance(oauth, dict) else {}
     token = credentials.oauth_token("claude", {"token_files": {"claude": str(path)}})
     if not token:
-        raise Unavailable("Login do Claude Code não encontrado; rode `claude` e faça /login.",
+        raise Unavailable(i18n.N_("Claude Code login not found; run `claude` and use /login."),
                           "unconfigured")
     # O token vale cerca de uma hora e é a própria CLI que o renova; o applet nunca renova
     # credencial, então um token vencido vira aviso, e não uma consulta condenada a falhar.
@@ -870,10 +970,11 @@ def claude(config=None):
     if expires:
         segundos = expires/1000 if expires > 1e11 else expires
         if segundos < time.time():
-            raise Unavailable("Token do Claude Code expirado; rode `claude` para renovar a "
-                              "sessão (o applet não renova credenciais).", "unconfigured")
+            raise Unavailable(i18n.N_("Claude Code token expired; run `claude` to renew the "
+                                      "session (the applet does not renew credentials)."),
+                              "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
-    source = "Claude Code · assinatura (não verificado)"
+    source = i18n._("Claude Code · subscription (not verified)")
     interval = claude_interval(config)
     cached = quota_reuse("claude", interval, identity)
     if cached:
@@ -889,15 +990,16 @@ def claude(config=None):
         read_at = stamp()
         metrics = parse_claude(payload)
         if not metrics:
-            raise Unavailable("Resposta sem as janelas esperadas; rode `diag claude` e relate o "
-                              "resultado no GitHub para ajustar o conector.")
+            raise Unavailable(i18n.N_("Response without the expected windows; run `diag claude` "
+                                      "and report the result on GitHub to adjust the connector."))
     except Unavailable as error:
         quota_mark_failure("claude", identity, str(error),
                            getattr(error, "message_args", None))
         raise
     quota_write_cache("claude", identity, read_at, metrics)
     return service("claude", source=source, metrics=metrics, identity=identity,
-                   message=claude_message(payload, oauth))
+                   message=claude_message(payload, oauth), message_id=CLAUDE_NOTE_ID,
+                   message_args=claude_note_args(oauth))
 
 
 def describe(payload, depth=0):
@@ -908,7 +1010,7 @@ def describe(payload, depth=0):
     classificados sem reproduzir conteúdo.
     """
     if depth > 3:
-        return "…"
+        return i18n._("…")
     if isinstance(payload, dict):
         return {str(k): describe(v, depth + 1) for k, v in list(payload.items())[:40]}
     if isinstance(payload, list):
@@ -918,36 +1020,36 @@ def describe(payload, depth=0):
     if isinstance(payload, (int, float)):
         value = float(payload)
         if value < 0:
-            return "número negativo"
+            return i18n._("negative number")
         if value <= 1:
-            return "número entre 0 e 1"
-        return "número entre 1 e 100" if value <= 100 else "número acima de 100"
+            return i18n._("number between 0 and 1")
+        return i18n._("number between 1 and 100") if value <= 100 else i18n._("number above 100")
     if isinstance(payload, str) and re.match(r"^\d{4}-\d{2}-\d{2}T", payload):
-        return "texto (data e hora)"
-    return "texto"
+        return i18n._("text (date and time)")
+    return i18n._("text")
 
 
 def claude_diag(config=None):
     """Diagnóstico do conector Claude Code, para relatar em issue sem vazar nada."""
     config = config or {}
     declared = ((config or {}).get("token_files") or {}).get("claude")
-    origem = ("configuração" if declared else
-              "CLAUDE_CONFIG_DIR" if os.environ.get("CLAUDE_CONFIG_DIR") else "padrão")
+    origem = (i18n._("configuration") if declared else
+              "CLAUDE_CONFIG_DIR" if os.environ.get("CLAUDE_CONFIG_DIR") else i18n._("default"))
     path = claude_login_path(config)
     report = {"origem_do_caminho": origem, "arquivo_existe": path.exists()}
     token = credentials.oauth_token("claude", {"token_files": {"claude": str(path)}})
     if not token:
-        report["credencial"] = "não encontrada"
+        report["credencial"] = i18n._("not found")
         return report
-    report["credencial"] = "encontrada"
+    report["credencial"] = i18n._("found")
     oauth = read_json(path).get("claudeAiOauth")
     report["campos_do_login"] = sorted(oauth.keys()) if isinstance(oauth, dict) else []
     try:
         payload = request(CLAUDE_USAGE_URL, token, headers={"anthropic-beta": CLAUDE_BETA})
     except Unavailable as e:
-        report["consulta"] = str(e)
+        report["consulta"] = i18n._f(i18n._(str(e)), **(getattr(e, "message_args", None) or {}))
         return report
-    report["consulta"] = "ok"
+    report["consulta"] = i18n._("ok")
     report["estrutura"] = describe(payload)
     report["janelas_reconhecidas"] = [m["id"] for m in parse_claude(payload)]
     return report
@@ -974,8 +1076,8 @@ def meta_fields(payload):
             else:
                 achado = False
                 break
-        achados[".".join(caminho)] = ("ausente" if not achado else
-                                      "nulo" if atual is None else describe(atual))
+        achados[".".join(caminho)] = (i18n._("absent") if not achado else
+                                      i18n._("null") if atual is None else describe(atual))
     return achados
 
 
@@ -988,23 +1090,23 @@ def meta_diag(config=None):
     """
     config = config or {}
     declared = ((config or {}).get("token_files") or {}).get("meta")
-    origem = ("configuração" if declared else
-              "MUSE_AUTH_PATH" if os.environ.get("MUSE_AUTH_PATH") else "padrão")
+    origem = (i18n._("configuration") if declared else
+              "MUSE_AUTH_PATH" if os.environ.get("MUSE_AUTH_PATH") else i18n._("default"))
     path = meta_login_path(config)
     report = {"origem_do_caminho": origem, "arquivo_existe": path.exists()}
     token = credentials.oauth_token("meta", {"token_files": {"meta": str(path)}})
     if not token:
-        report["credencial"] = "não encontrada"
+        report["credencial"] = i18n._("not found")
         return report
-    report["credencial"] = "encontrada"
+    report["credencial"] = i18n._("found")
     login = read_json(path)
     report["campos_do_login"] = sorted(login.keys()) if isinstance(login, dict) else []
     try:
         payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
     except Unavailable as e:
-        report["consulta"] = str(e)
+        report["consulta"] = i18n._f(i18n._(str(e)), **(getattr(e, "message_args", None) or {}))
         return report
-    report["consulta"] = "ok"
+    report["consulta"] = i18n._("ok")
     report["estrutura"] = describe(payload)
     report["campos_esperados"] = meta_fields(payload)
     report["janelas_reconhecidas"] = [m["id"] for m in parse_meta(payload)]
@@ -1018,13 +1120,13 @@ def diagnose(id_, config=None):
     """Diagnóstico sanitizado de um serviço; há relatório apenas para quem declara um."""
     fn = DIAGNOSTICS.get(id_)
     if fn is None:
-        return {"diagnostico": "não há diagnóstico para este serviço"}
+        return {"diagnostico": i18n._("no diagnostic for this service")}
     try:
         return fn(config)
     except Unavailable as e:
-        return {"erro": str(e)}
+        return {"erro": i18n._f(i18n._(str(e)), **(getattr(e, "message_args", None) or {}))}
     except Exception:
-        return {"erro": "falha inesperada no diagnóstico"}
+        return {"erro": i18n._("unexpected failure in the diagnostic")}
 
 
 def collect_provider(id_, config=None):
@@ -1032,7 +1134,7 @@ def collect_provider(id_, config=None):
     try:
         result = globals()[id_](config)
         if not result["metrics"]:
-            raise Unavailable("Fonte não retornou métricas de uso reconhecidas.")
+            raise Unavailable(i18n.N_("Source did not return recognized usage metrics."))
         return result
     except Unavailable as e:
         # O identificador é o próprio msgid: um caminho só, para as 23 origens de erro

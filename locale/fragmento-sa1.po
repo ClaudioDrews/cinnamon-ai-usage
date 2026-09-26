@@ -1,0 +1,310 @@
+# Fragmento de tradução — subagente sa1 (backend/providers.py).
+#
+# Contém SOMENTE as entradas acrescentadas por este trabalho: toda a prosa de
+# backend/providers.py que passou a nascer como msgid em inglês no catálogo.
+# Saído de `git diff locale/pt_BR.po` do commit do subagente, e é para conferir
+# exatamente: cada par msgid/msgstr abaixo casa byte a byte com o .po da integração.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ai-usage@claudio.drews 0.2.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: \n"
+"PO-Revision-Date: 2026-09-26 15:00-0300\n"
+"Last-Translator: Cláudio Drews\n"
+"Language-Team: Português (Brasil)\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#, python-brace-format
+msgid "Application subscription; not API usage billing.{details}"
+msgstr "Assinatura do aplicativo; não é a cobrança por uso da API.{details}"
+
+#, python-brace-format
+msgid ""
+"Claude Code subscription; not API usage billing. Connector not verified on a "
+"real account.{details}"
+msgstr ""
+"Assinatura do Claude Code; não é a cobrança por uso da API. Conector não "
+"verificado em conta real.{details}"
+
+msgid "Credentials not configured."
+msgstr "Credencial não configurada."
+
+msgid "Unexpected redirect; consultation interrupted."
+msgstr "Redirecionamento inesperado; consulta interrompida."
+
+msgid "Response larger than the allowed limit."
+msgstr "Resposta maior que o limite permitido."
+
+msgid "Login expired or credentials refused."
+msgstr "Login expirado ou credencial recusada."
+
+msgid "Consultation access refused (HTTP 403)."
+msgstr "Acesso à consulta recusado (HTTP 403)."
+
+msgid "Usage source not found (HTTP 404)."
+msgstr "Fonte de uso não encontrada (HTTP 404)."
+
+msgid "Consultation limit reached; wait for the next update."
+msgstr "Limite de consultas; aguarde a próxima atualização."
+
+#, python-brace-format
+msgid "Consultation failed (HTTP {code})."
+msgstr "Falha na consulta (HTTP {code})."
+
+# Texto que fica no cache: mensagem e rótulo do contrato. O que se grava é este msgid; a
+# tradução acima acontece na apresentação, no idioma em vigor na hora de mostrar.
+msgid "Could not query the service; check the connection."
+msgstr "Não foi possível consultar o serviço; verifique a conexão."
+
+msgid "Unrecognized response format."
+msgstr "Formato de resposta não reconhecido."
+
+msgid "Quota"
+msgstr "Cota"
+
+#, python-brace-format
+msgid "Window of {hours} h"
+msgstr "Janela de {hours} h"
+
+#, python-brace-format
+msgid "{name} · {hours} h window"
+msgstr "{name} · janela de {hours} h"
+
+#, python-brace-format
+msgid "{name} · quota"
+msgstr "{name} · cota"
+
+msgid "Codex CLI not found."
+msgstr "Codex CLI não encontrado."
+
+msgid "Codex did not provide quotas; check the CLI login."
+msgstr "Codex não disponibilizou cotas; confira o login do CLI."
+
+msgid "Timeout querying Codex."
+msgstr "Tempo limite na consulta ao Codex."
+
+msgid "The current login did not return Codex quotas."
+msgstr "Login atual não retornou cotas do Codex."
+
+#, python-brace-format
+msgid "Key limit ({reset})"
+msgstr "Limite da chave ({reset})"
+
+msgid "Key limit"
+msgstr "Limite da chave"
+
+msgid "Monthly spend"
+msgstr "Gasto no mês"
+
+msgid "Cumulative key spend"
+msgstr "Gasto acumulado da chave"
+
+msgid "OpenRouter · key"
+msgstr "OpenRouter · chave"
+
+msgid "Available balance"
+msgstr "Saldo disponível"
+
+msgid "DeepSeek · balance"
+msgstr "DeepSeek · saldo"
+
+msgid "Total available balance"
+msgstr "Saldo total disponível"
+
+msgid "Plan balance"
+msgstr "Saldo do plano"
+
+msgid "Prepaid credit balance"
+msgstr "Saldo de recargas"
+
+msgid "Nous Portal token not configured."
+msgstr "Token do Nous Portal não configurado."
+
+msgid "Nous Portal · OAuth token"
+msgstr "Nous Portal · token OAuth"
+
+msgid "Rolling window"
+msgstr "Janela móvel"
+
+msgid "Week"
+msgstr "Semana"
+
+msgid "Month"
+msgstr "Mês"
+
+msgid "OpenCode Go key not configured."
+msgstr "Chave OpenCode Go não configurada."
+
+msgid "Go response without recognized quotas; experimental connector."
+msgstr "Resposta Go sem cotas reconhecidas; conector experimental."
+
+msgid "OpenCode Go · usage (experimental)"
+msgstr "OpenCode Go · uso (experimental)"
+
+msgid "Unrecognized xAI balance."
+msgstr "Saldo xAI não reconhecido."
+
+msgid "API prepaid balance"
+msgstr "Saldo pré-pago da API"
+
+msgid "Prepaid credits used"
+msgstr "Créditos pré-pagos usados"
+
+msgid "xAI management key not configured."
+msgstr "Chave de gerenciamento da xAI não configurada."
+
+msgid ""
+"Set grok.team_id in the configuration or XAI_TEAM_ID together with the "
+"credentials to query the xAI API."
+msgstr ""
+"Informe grok.team_id na configuração ou XAI_TEAM_ID junto das credenciais "
+"para consultar a API xAI."
+
+msgid "xAI Management API · does not include the Grok subscription"
+msgstr "xAI Management API · não inclui assinatura Grok"
+
+msgid ""
+"xAI records prepaid credits as a negative value in total.val; the displayed "
+"balance is the available credit."
+msgstr ""
+"A xAI registra recargas como valor negativo em total.val; o saldo exibido é "
+"o crédito disponível."
+
+msgid "Prompt credits"
+msgstr "Créditos de prompts"
+
+msgid "Flow credits"
+msgstr "Créditos de fluxo"
+
+#, python-brace-format
+msgid "Model {number}"
+msgstr "Modelo {number}"
+
+msgid "Open Antigravity to consult the local quotas."
+msgstr "Abra o Antigravity para consultar as cotas locais."
+
+msgid "Antigravity · local server (experimental)"
+msgstr "Antigravity · servidor local (experimental)"
+
+msgid "Local server found, but it did not return recognized quotas."
+msgstr "Servidor local encontrado, mas não retornou cotas reconhecidas."
+
+#, python-brace-format
+msgid ""
+"Consultation deferred: there was already an attempt in the last {minutes} "
+"min and the minimum interval between calls has not passed yet; the previous "
+"reading is kept."
+msgstr ""
+"Consulta adiada: já houve tentativa nos últimos {minutes} min e o intervalo "
+"mínimo entre chamadas ainda não passou; a leitura anterior é mantida."
+
+msgid "Current window"
+msgstr "Janela atual"
+
+#, python-brace-format
+msgid "Plan: {plan}."
+msgstr "Plano: {plan}."
+
+#, python-brace-format
+msgid "Meta reported {percent}% usage; the applet bar stops at 100%."
+msgstr "A Meta relatou {percent}% de uso; a barra do applet vai até 100%."
+
+msgid ""
+"Muse Code login not found; run `muse login` to read the Meta subscription."
+msgstr ""
+"Login do Muse Code não encontrado; rode `muse login` para ler a assinatura "
+"da Meta."
+
+msgid "Muse Code · Meta subscription"
+msgstr "Muse Code · assinatura da Meta"
+
+msgid ""
+"Meta answered without the subscription percentages; run `diag meta` and "
+"report the result on GitHub to adjust the connector."
+msgstr ""
+"A Meta respondeu sem os percentuais da assinatura; rode `diag meta` e relate "
+"o resultado no GitHub para ajustar o conector."
+
+#, python-brace-format
+msgid "Week · {model}"
+msgstr "Semana · {model}"
+
+#, python-brace-format
+msgid "Plan: {plan} · {tier}."
+msgstr "Plano: {plan} · {tier}."
+
+msgid "Claude Code login not found; run `claude` and use /login."
+msgstr "Login do Claude Code não encontrado; rode `claude` e faça /login."
+
+msgid ""
+"Claude Code token expired; run `claude` to renew the session (the applet "
+"does not renew credentials)."
+msgstr ""
+"Token do Claude Code expirado; rode `claude` para renovar a sessão (o applet "
+"não renova credenciais)."
+
+msgid "Claude Code · subscription (not verified)"
+msgstr "Claude Code · assinatura (não verificado)"
+
+msgid ""
+"Response without the expected windows; run `diag claude` and report the "
+"result on GitHub to adjust the connector."
+msgstr ""
+"Resposta sem as janelas esperadas; rode `diag claude` e relate o resultado "
+"no GitHub para ajustar o conector."
+
+msgid "…"
+msgstr "…"
+
+msgid "negative number"
+msgstr "número negativo"
+
+msgid "number between 0 and 1"
+msgstr "número entre 0 e 1"
+
+msgid "number between 1 and 100"
+msgstr "número entre 1 e 100"
+
+msgid "number above 100"
+msgstr "número acima de 100"
+
+msgid "text (date and time)"
+msgstr "texto (data e hora)"
+
+msgid "text"
+msgstr "texto"
+
+msgid "configuration"
+msgstr "configuração"
+
+msgid "default"
+msgstr "padrão"
+
+msgid "not found"
+msgstr "não encontrada"
+
+msgid "found"
+msgstr "encontrada"
+
+msgid "ok"
+msgstr "ok"
+
+msgid "absent"
+msgstr "ausente"
+
+msgid "null"
+msgstr "nulo"
+
+msgid "no diagnostic for this service"
+msgstr "não há diagnóstico para este serviço"
+
+msgid "unexpected failure in the diagnostic"
+msgstr "falha inesperada no diagnóstico"
+
+msgid "Source did not return recognized usage metrics."
+msgstr "Fonte não retornou métricas de uso reconhecidas."
