@@ -106,6 +106,21 @@ O que foi verificado nesta máquina, e o que não:
 
 A rota e o formato vieram de documentação pública de terceiros, não da Anthropic: o projeto `wakamex/ccusage`, as issues `anthropics/claude-code#27915` e `#18121` e a documentação da própria Anthropic sobre onde as credenciais ficam (`~/.claude/.credentials.json`, `CLAUDE_CONFIG_DIR`, Keychain no macOS).
 
+## Revisão da análise externa (26/09/2026)
+
+Uma análise de outro assistente (guardada fora do repositório) revisou o applet em 25/09, quando o projeto tinha sete serviços e 35 testes. Cada achado foi conferido contra o código atual antes de virar correção; um deles era falso positivo e foi descartado.
+
+- **Coleta pulada dizia "falhei".** Com a trava `collect.lock` ocupada, o `collect` devolvia o snapshot antigo com todos os serviços rebaixados a `stale` e saía com 0: o botão Atualizar parecia não fazer nada e a janela afirmava falha que não houve. Corrigido com o campo público `notice` (aviso, não erro) e com a condição invertida que suprimia o aviso de falha real quando havia serviços sem leitura.
+- **Valor de credencial era cortado em silêncio.** `KEY=sk-abc#def` virava `sk-abc` (o `#` cortava o resto, e chave de API costuma ter `#`), valor com espaço era descartado e aspa solta descartava o valor — tudo aparecendo como "não configurado". Agora o valor sem aspas vale como escrito e a janela lista as linhas ignoradas com o motivo.
+- **Ícone do robô preto na janela.** Medido no pixbuf: 389 pixels opacos, todos `(0,0,0)`, porque `currentColor` não é resolvido pelo GdkPixbuf. Agora a cor de frente do tema é aplicada ao SVG antes de carregar, e o mesmo ícone colorido serve à janela (128 px).
+- **A janela dependia de um pacote não declarado.** O carregador de SVG vem do `librsvg2-common` e a chamada não tinha guarda: sem o pacote, a janela falhava na construção. Agora há degradação para ícone do tema e a lista de pacotes está no README.
+- **Rótulos inventados na demonstração** (Grok pré-pago com "Janela de 5 h", OpenCode Go com uma janela só) e `docs/demo.png` capturada antes do botão Credenciais: a imagem pública do repositório mostrava uma interface que não existe mais. O demo passou a seguir a forma de cada conector e a prévia foi recapturada.
+- **Três versões diferentes** (metadata 0.2.0, User-Agent 0.1.0, validação 0.1.0). Agora uma constante única, com teste que falha se divergirem.
+
+**Falso positivo descartado:** a análise afirmou que o menu de contexto ficaria vazio e que o README estava errado. O Cinnamon instala "Configure…" sozinho quando existe `settings-schema.json` (`/usr/share/cinnamon/js/ui/applet.js`): a instrução do README estava correta.
+
+Verificação desta rodada: 72 testes Python offline (11 novos), teste JS do applet com o aviso de coleta pulada e os nomes dos serviços com falha, `node --check`, `compileall`, prova com GTK real da janela de credenciais (aviso de sintaxe e caminho pendente) e do pixbuf do cabeçalho, smoke GTK com os nove serviços e `docs/demo.png` recapturada.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.
