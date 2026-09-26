@@ -1,207 +1,216 @@
-# Uso de IA para Cinnamon
+[Português do Brasil](README.pt-BR.md) | [English](README.md)
 
-Versão 0.2.0. Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
+# AI usage for Cinnamon
 
-- **Clique simples:** até cinco serviços, primeiro os com uso observado e depois os de leitura mais recente (quem não tem leitura não ocupa linha).
-- **Passe o mouse:** balão com resumo por serviço, horário da coleta e avisos.
-- **Clique duplo:** janela completa, com todas as métricas disponíveis.
-- **Ver todos os serviços…:** alternativa visível ao clique duplo.
-- **Credenciais…:** guarda chaves no cofre do sistema e aponta arquivos de credenciais.
-- **Atualizar:** consulta manual. A atualização automática usa 120 segundos por padrão.
+Version 0.2.0. Local applet to consult quotas, spend and balances of AI services on Linux Mint Cinnamon.
 
-O menu não muda de ordem enquanto estiver aberto. A janela usa o tema GTK do sistema, tem rolagem e separa os serviços sem leitura.
+- **Single click:** up to five services, first the ones with observed usage and then the ones with the most recent reading (a service without a reading takes no row).
+- **Hover:** tooltip with a summary per service, the collection time and warnings.
+- **Double click:** the full window, with every available metric.
+- **See all services…:** a visible alternative to the double click.
+- **Credentials…:** keeps keys in the system keyring and points to credentials files.
+- **Update:** manual query. The automatic refresh uses 120 seconds by default.
 
-Falha e leitura antiga aparecem nomeadas, separadas da cota: `Falha na leitura: Codex, Grok` em vermelho no menu e no balão, e `Leitura antiga: Antigravity` sem destaque — a cor do robô continua respondendo só a percentual de cota, e o applet confere a **idade** da leitura, não só o estado: uma cota de uma hora atrás não colore o ícone nem com a coleta pausada. Na janela, o aviso de leitura antiga diz o que aconteceu — intervalo vencido é diferente de atualização que falhou.
+The menu does not change order while it is open. The window uses the system GTK theme, scrolls and separates the services without a reading.
 
-O robô aparece no painel como ícone simbólico: em uso normal ele segue a cor do tema, fica **amarelo a partir de 70% usado** e **vermelho a partir de 90%**, considerando a maior porcentagem entre todas as janelas de todos os serviços com leitura válida. Saldos e gastos sem teto conhecido não acionam a cor; leituras antigas são identificadas no balão e excluídas do cálculo. O SVG está em `assets/robot-head-symbolic.svg` (fundo transparente, `fill:currentColor`).
+Failure and a stale reading appear named, separated from the quota: `Reading failed: Codex, Grok` in red in the menu and in the tooltip, and `Stale reading: Antigravity` without highlight — the robot colour still answers only to the quota percentage, and the applet checks the **age** of the reading, not only the state: a quota from an hour ago does not colour the icon even with the collection paused. In the window, the stale-reading warning says what happened — an expired interval is different from a refresh that failed.
 
-## Estado da primeira versão
+The robot appears in the panel as a symbolic icon: in normal use it follows the theme colour, turns **yellow from 70% used** and **red from 90%**, considering the highest percentage across all the windows of all the services with a valid reading. Balances and spend without a known cap do not trigger the colour; stale readings are identified in the tooltip and excluded from the calculation. The SVG is in `assets/robot-head-symbolic.svg` (transparent background, `fill:currentColor`).
 
-Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
+## Language
 
-| Serviço | Leitura implementada | Verificação local |
+- The interface follows the session language; Preferences can pin a language or leave it on `auto`.
+- A pinned language only takes effect when its catalog exists; without a catalog the interface answers in English.
+- Changing the language does not discard a reading, does not force a collection and does not mark anything as stale.
+- The strings live in `locale/`; `sh scripts/i18n.sh` rebuilds the catalog. Details in [docs/i18n.md](docs/i18n.md).
+
+## State of the first version
+
+Verified on 2026-09-25, Mint 22.3 / Cinnamon 6.6.9:
+
+| Service | Reading implemented | Local verification |
 |---|---|---|
-| Codex | Todas as janelas devolvidas pelo app-server, com renovação | Consulta autenticada OK, duas janelas |
-| OpenCode Go | Janela móvel, semanal e mensal | Consulta autenticada OK, três janelas |
-| Nous Portal | Saldo total, saldo do plano e recargas; renovação do plano | Consulta autenticada OK via login OAuth do Hermes |
-| DeepSeek | Saldo por moeda | Consulta autenticada OK |
-| OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; sem teto na chave, nenhuma barra inventada |
-| Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: créditos do plano e modelos nomeados |
-| Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
-| Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada responde; em 26/09/2026 a rota devolveu os metadados da conta **sem** o bloco de uso, preservando a última leitura. Veja a seção do serviço |
-| Claude Code | Janela de 5 h e semanal da assinatura (e janelas por modelo, quando vierem) | **Não verificada**: sem conta Anthropic nesta máquina; rota e formato vêm da documentação pública da comunidade |
+| Codex | Every window returned by the app-server, with renewal | Authenticated query OK, two windows |
+| OpenCode Go | Rolling, weekly and monthly window | Authenticated query OK, three windows |
+| Nous Portal | Total balance, plan balance and top-ups; plan renewal | Authenticated query OK via the Hermes OAuth login |
+| DeepSeek | Balance per currency | Authenticated query OK |
+| OpenRouter | Monthly/cumulative spend; percentage if the key has a limit | Authenticated query OK; no cap on the key, no invented bar |
+| Antigravity | Plan credits and quotas per model, via the local server | Authenticated query OK with the IDE open: plan credits and named models |
+| Grok / xAI | Prepaid balance of the management API | Authenticated query OK with the management key and team_id; the Grok subscription does not appear here |
+| Meta AI (Muse Code) | Current and weekly window of the subscription | Authenticated query answers; on 2026-09-26 the route returned the account metadata **without** the usage block, preserving the last reading. See the service section |
+| Claude Code | 5 h and weekly window of the subscription (and per-model windows, when they come) | **Not verified**: no Anthropic account on this machine; the route and the format come from the public documentation of the community |
 
-O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta. O conector do Claude Code é o único publicado **sem verificação em conta real** — está implementado, testado contra o formato documentado e rotulado como não verificado; a seção dele explica o que falta e como relatar.
+The Grok connector monitors **the xAI API**, not the SuperGrok/Grok Build subscription. Those plans require another source. Antigravity and Go use interfaces that may change; changes are treated as unavailability, without turning the absence of data into zero. The Meta connector reads the Muse Code **subscription** (current and weekly window), not Meta's API usage billing. The Claude Code connector is the only one published **without verification on a real account** — it is implemented, tested against the documented format and labelled as not verified; its section explains what is missing and how to report.
 
-[Prévia da janela com dados fictícios](docs/demo.png)
+[Preview of the window with fictional data](docs/demo.png)
 
-## Executar sem instalar
+## Run without installing
 
-Requer Python 3, PyGObject/GTK3 e Cinnamon/CJS. Em distribuições derivadas do Debian/Ubuntu (Mint incluído):
+Requires Python 3, PyGObject/GTK3 and Cinnamon/CJS. On Debian/Ubuntu-derived distributions (Mint included):
 
 ```bash
 sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 librsvg2-common
 ```
 
-`librsvg2-common` é quem rasteriza o SVG do robô na janela. Sem ele a janela continua abrindo, com um ícone do tema no lugar e um aviso no balão do ícone. O cofre do sistema é opcional (`gir1.2-secret-1`, já presente no Mint): sem ele, as chaves vêm do arquivo indicado ou do ambiente. Node serve apenas à verificação de JavaScript, não à execução do applet. Não há pacotes pip/npm.
+`librsvg2-common` is what rasterises the robot SVG in the window. Without it the window still opens, with a theme icon in its place and a warning in the icon tooltip. The system keyring is optional (`gir1.2-secret-1`, already present on Mint): without it, the keys come from the indicated file or from the environment. Node serves only the JavaScript verification, not the execution of the applet. There are no pip/npm packages.
 
 ```bash
-cd /caminho/do/repositorio
-python3 backend/window.py --demo   # janela com dados fictícios
-python3 backend/window.py          # consultas reais de uso/saldo
-python3 backend/credentials_window.py  # chaves no cofre e caminhos de arquivo
+cd /path/to/repository
+python3 backend/window.py --demo   # window with made-up data
+python3 backend/window.py          # real usage/balance queries
+python3 backend/credentials_window.py  # keys in the keyring and file paths
 python3 backend/collector.py collect
-python3 backend/collector.py read  # cache, sem consultas de rede
-python3 backend/collector.py worker <serviço>  # testa um provedor só
-python3 backend/collector.py diag <serviço>    # nomes de campos e faixas, sem valores
+python3 backend/collector.py read  # cache only, no network queries
+python3 backend/collector.py worker <service>  # queries a single provider
+python3 backend/collector.py diag <service>    # field names and ranges, no values
 ```
 
-Demo não lê credenciais nem altera o cache. A coleta real não faz inferência, compras, recargas ou mudanças de plano.
+The demo reads no credentials and does not change the cache. The real collection does no inference, purchases, top-ups or plan changes.
 
-## Instalar para o usuário
+## Install for the user
 
 ```bash
 python3 install.py
 ```
 
-O instalador copia o applet e o backend para `~/.local/share/cinnamon/applets/ai-usage@claudio.drews/`. Preserve o código fonte neste repositório. Uma versão anterior é movida para `~/.local/share/cinnamon/ai-usage-backups/` antes da substituição.
+The installer copies the applet and the backend to `~/.local/share/cinnamon/applets/ai-usage@claudio.drews/`. Keep the source code in this repository. A previous version is moved to `~/.local/share/cinnamon/ai-usage-backups/` before the replacement.
 
-Depois, abra **Configurações do sistema → Applets → Gerenciar**, procure **Uso de IA** e adicione ao painel. O instalador não ativa applets nem reinicia Cinnamon. Após atualização, remova e adicione o applet para carregar a nova versão. Preferências de intervalo e pausa ficam em **Configurar**, no menu de contexto.
+Then open **System Settings → Applets → Manage**, look for **AI usage** and add it to the panel. The installer does not enable applets or restart Cinnamon. After an update, remove and add the applet to load the new version. Interval and pause preferences are in **Configure**, in the context menu.
 
-Para desinstalar, remova primeiro o applet do painel e apague somente o diretório `ai-usage@claudio.drews` da pasta de applets. Cache e preferências são separados e podem ser preservados.
+To uninstall, first remove the applet from the panel and delete only the `ai-usage@claudio.drews` directory from the applets folder. Cache and preferences are separate and can be preserved.
 
-## Credenciais e configurações
+## Credentials and settings
 
-As preferências do Cinnamon não guardam segredos. Cada credencial é procurada nesta ordem:
+Cinnamon preferences do not keep secrets. Each credential is looked up in this order:
 
-1. **Cofre do sistema** (Secret Service / gnome-keyring) — é onde a janela **Credenciais…** grava o que a pessoa digita. O cofre vale para qualquer um dos nomes aceitos da credencial e vence o arquivo e o ambiente, de modo que salvar uma chave nova sempre substitui a que a coleta vinha usando. Nada é exibido de volta: a janela só informa de onde o valor viria.
-2. **Arquivo indicado por você** em `config.json`, na chave `credentials_path`, no formato `NOME=VALOR` — qualquer caminho (`~/.env`, `~/.config/secrets.env`, o que você usar). O arquivo é lido sem shell: `$(...)` e crases ficam literais. Sem aspas, o valor vale exatamente como está escrito — `KEY=sk-abc#def` guarda `sk-abc#def`, porque `#` só começa comentário depois de espaço. Com aspas, valem as regras do shell, inclusive escape (`KEY="com # dentro"`, `KEY="aspa\"dupla"`). Linha sem `=` ou com aspas não fechadas é ignorada — e a janela de credenciais lista quais foram ignoradas e por quê, para “não configurado” nunca aparecer sem causa.
-3. **Variáveis de ambiente** do processo.
+1. **System keyring** (Secret Service / gnome-keyring) — it is where the **Credentials…** window writes what the person types. The keyring counts for any of the accepted names of the credential and beats the file and the environment, so that saving a new key always replaces the one the collection had been using. Nothing is displayed back: the window only states where the value would come from.
+2. **A file indicated by you** in `config.json`, under the key `credentials_path`, in the `NAME=VALUE` format — any path (`~/.env`, `~/.config/secrets.env`, whatever you use). The file is read without a shell: `$(...)` and backticks stay literal. Without quotes, the value counts exactly as written — `KEY=sk-abc#def` keeps `sk-abc#def`, because `#` only starts a comment after a space. With quotes, the shell rules apply, escape included (`KEY="with # inside"`, `KEY="double\"quote"`). A line without `=` or with unterminated quotes is ignored — and the credentials window lists which ones were ignored and why, so that “not configured” never appears without a cause.
+3. **Environment variables** of the process.
 
-Para serviços que autenticam por login, e não por chave, `token_files` aponta um JSON; o primeiro `access_token` encontrado, em qualquer nível, é usado (nunca copiado para o cache).
+For services that authenticate by login, and not by key, `token_files` points to a JSON; the first `access_token` found, at any level, is used (never copied to the cache).
 
-Variáveis reconhecidas: `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `OPENCODE_GO_API_KEY` (ou `OPENCODE_API_KEY`), `XAI_MANAGEMENT_API_KEY` (saldo da API xAI; a chave de inferência não serve) e `NOUS_PORTAL_TOKEN`.
+Recognized variables: `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `OPENCODE_GO_API_KEY` (or `OPENCODE_API_KEY`), `XAI_MANAGEMENT_API_KEY` (xAI API balance; the inference key does not work) and `NOUS_PORTAL_TOKEN`.
 
-### Chave da xAI (Grok)
+### xAI key (Grok)
 
-O saldo não está na chave de inferência: ele vive na **Management API**, que exige uma **management key** — uma credencial separada, criada em `console.x.ai` → *Settings* → *Management Keys*. Para criá-la e usá-la, o usuário da conta precisa da permissão `Management Keys` **Read + Write** na página *Users* do Console; sem ela o item não aparece e quem habilita é o administrador do time. Os ACLs (`api-key:model`, `api-key:endpoint`) valem para as chaves de inferência e não substituem essa permissão.
+The balance is not in the inference key: it lives in the **Management API**, which requires a **management key** — a separate credential, created at `console.x.ai` → *Settings* → *Management Keys*. To create and use it, the account user needs the `Management Keys` permission with **Read + Write** on the *Users* page of the Console; without it the item does not appear, and the one who enables it is the team administrator. The ACLs (`api-key:model`, `api-key:endpoint`) apply to the inference keys and do not replace that permission.
 
-O conector usa dois dados:
+The connector uses two pieces of data:
 
-- `XAI_MANAGEMENT_KEY` (aceito também como `XAI_MANAGEMENT_API_KEY`) — a management key (Bearer). Coloque-a pelo botão **Credenciais…** do applet, que grava no cofre do sistema.
-- `XAI_TEAM_ID` no próprio arquivo de credenciais, ou `grok.team_id` em `~/.config/cinnamon-ai-usage/config.json`, ou o campo correspondente na janela **Credenciais…** — o identificador do time, visível na URL do Console (`console.x.ai/team/<team_id>/…`). O valor da configuração tem precedência.
+- `XAI_MANAGEMENT_KEY` (also accepted as `XAI_MANAGEMENT_API_KEY`) — the management key (Bearer). Set it through the applet's **Credentials…** button, which writes to the system keyring.
+- `XAI_TEAM_ID` in the credentials file itself, or `grok.team_id` in `~/.config/cinnamon-ai-usage/config.json`, or the corresponding field in the **Credentials…** window — the team identifier, visible in the Console URL (`console.x.ai/team/<team_id>/…`). The value from the configuration takes precedence.
 
-Endpoints que interessam para um painel:
+Endpoints that matter for a panel:
 
-| Uso | Endpoint |
+| Use | Endpoint |
 | --- | --- |
-| Saldo pré-pago e mudanças (usado hoje) | `GET /v1/billing/teams/{team_id}/prepaid/balance` |
-| Conferir se a chave é uma management key válida (não exige ACL) | `GET /auth/management-keys/validation` |
-| Gasto do período e teto vigente (dá percentual real) | `GET /v1/billing/teams/{team_id}/postpaid/invoice/preview` |
-| Limites de gasto configurados | `GET /v1/billing/teams/{team_id}/postpaid/spending-limits` |
-| Uso por modelo e período | `POST /v1/billing/teams/{team_id}/usage` |
+| Prepaid balance and changes (used today) | `GET /v1/billing/teams/{team_id}/prepaid/balance` |
+| Check whether the key is a valid management key (does not require ACL) | `GET /auth/management-keys/validation` |
+| Spend of the period and the cap in force (gives a real percentage) | `GET /v1/billing/teams/{team_id}/postpaid/invoice/preview` |
+| Configured spending limits | `GET /v1/billing/teams/{team_id}/postpaid/spending-limits` |
+| Usage per model and period | `POST /v1/billing/teams/{team_id}/usage` |
 
-Base de todos: `https://management-api.x.ai`. O saldo vem em `total.val`, em centavos, e **com o sinal invertido**: a xAI registra a recarga como valor negativo no razão e o total é a soma das mudanças, de modo que o crédito disponível é o módulo desse total. O applet exibe o crédito disponível e registra a convenção na nota do serviço.
+Base for all of them: `https://management-api.x.ai`. The balance comes in `total.val`, in cents, and **with the sign inverted**: xAI records a top-up as a negative value in the ledger and the total is the sum of the changes, so that the available credit is the absolute value of that total. The applet displays the available credit and records the convention in the service note.
 
-Quando houver consumo de crédito pré-pago, a segunda linha do serviço mostra o percentual usado sobre o total recarregado (a soma das recargas), porque a chave não traz teto próprio. Enquanto não há consumo, aparece só o saldo — nada de barra em zero inventada.
+When there is prepaid credit consumption, the second line of the service shows the percentage used over the total topped up (the sum of the top-ups), because the key brings no cap of its own. While there is no consumption, only the balance appears — no invented bar at zero.
 
-A management key é uma credencial poderosa: ela cria e revoga chaves de API e mexe em cobrança. Guarde-a no cofre, não em arquivo versionado.
+The management key is a powerful credential: it creates and revokes API keys and touches billing. Keep it in the keyring, not in a versioned file.
 
-Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, o Muse Code usa o dele (`muse login`) em `~/.config/muse/auth.json` e o Claude Code usa o do `claude /login` em `~/.claude/.credentials.json`; nenhum dos três aparece na janela de credenciais, porque o arquivo é encontrado pelo caminho padrão do próprio aplicativo. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
+Codex uses the login of its own CLI (`codex login`) in `~/.codex/auth.json`, Muse Code uses its own (`muse login`) in `~/.config/muse/auth.json` and Claude Code uses the one from `claude /login` in `~/.claude/.credentials.json`; none of the three appears in the credentials window, because the file is found by the default path of the application itself. Antigravity is probed only on loopback and requires the IDE server to be running; do not confuse `ANTIGRAVITY_API_KEY` with the IDE login.
 
-### Assinatura do Muse Code (Meta)
+### Muse Code subscription (Meta)
 
-A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `used_percent` no arquivo local — o painel `/cost` vive só na memória do cliente. O que funciona é a chamada que o próprio cliente faz ao subir, `POST https://api.meta.ai/muse-code/key`, com o token OAuth do `muse login`. Ela devolvia `subs_usage` com a janela corrente (`used_percent`, `window_duration_mins`, `resets_at` em epoch) e a semanal — veja o estado atual logo abaixo.
+Meta does not expose a quota-reading route: neither `GET /muse-code/usage`, nor `used_percent` in the local file — the `/cost` panel lives only in the memory of the client. What works is the call the client itself makes when it starts up, `POST https://api.meta.ai/muse-code/key`, with the OAuth token from `muse login`. It used to return `subs_usage` with the current window (`used_percent`, `window_duration_mins`, `resets_at` in epoch) and the weekly one — see the current state just below.
 
-**Estado em 26/09/2026 — a rota parou de devolver o bloco de uso.** A leitura das 16:59:16Z trouxe as duas janelas com percentuais; a tentativa das 17:17:48Z, na mesma rota, devolveu só os metadados da conta e da assinatura (chave, e-mail, tier, situação da assinatura — `is_subs_active` verdadeiro, sem exigência de pagamento) e **nenhum** `subs_usage`. O conector fez o que devia: marcou a tentativa como falha, preservou a leitura anterior e a mostrou como leitura antiga por falha, em vez de reaproveitá-la como leitura boa. Isso é o que a resposta mostrou; **não** é prova de que a Meta mudou a rota — pode ser mudança do lado dela, algum estado que a chamada agora carrega, ou variação entre chamadas. O que separa as hipóteses é o relatório do `diag meta` (abaixo), que diz quais campos vieram e quais dos esperados faltaram.
+**State on 2026-09-26 — the route stopped returning the usage block.** The reading at 16:59:16Z brought the two windows with percentages; the attempt at 17:17:48Z, on the same route, returned only the account and subscription metadata (key, e-mail, tier, subscription situation — `is_subs_active` true, with no payment requirement) and **no** `subs_usage`. The connector did what it should: it marked the attempt as a failure, preserved the previous reading and showed it as a stale reading due to failure, instead of reusing it as a good reading. This is what the response showed; it is **not** proof that Meta changed the route — it may be a change on their side, some state the call now carries, or variation between calls. What separates the hypotheses is the report of `diag meta` (below), which says which fields came and which of the expected ones were missing.
 
-Duas coisas que você deve saber antes de habilitar:
+Two things you should know before enabling it:
 
-- A chamada **emite credencial**, e não apenas lê. Verificamos em 26/09/2026 que ela é **idempotente**: devolve exatamente a mesma `api_key` que o cliente já guarda, sem tocar no `auth.json`. Nada foi rotacionado e o CLI continuou funcionando.
-- Mesmo assim o applet consulta no máximo a cada 15 minutos (`meta.min_interval_seconds`), guarda a última leitura em cache privado e mostra o horário real dela. Entre uma consulta e outra a linha aparece como leitura antiga, com o aviso — é intencional: preferimos um dado velho identificado a martelar uma rota sem documentação de limite. O intervalo conta a última **tentativa**: depois de uma falha (um HTTP 429, por exemplo) a próxima consulta espera o intervalo em vez de repetir a chamada; sem leitura a reaproveitar o serviço fica `unavailable` com "Consulta adiada", e com leitura anterior a linha continua marcada como falha, com a mensagem daquela tentativa — reaproveitar a leitura não apaga o que aconteceu, e só uma resposta nova devolve o serviço a `ok`.
+- The call **issues a credential**, and does not only read. We verified on 2026-09-26 that it is **idempotent**: it returns exactly the same `api_key` that the client already keeps, without touching `auth.json`. Nothing was rotated and the CLI kept working.
+- Even so the applet queries at most every 15 minutes (`meta.min_interval_seconds`), keeps the last reading in a private cache and shows its real time. Between one query and the next the row appears as a stale reading, with the warning — this is intentional: we prefer an old datum that is identified to hammering a route without documented limits. The interval counts the last **attempt**: after a failure (an HTTP 429, for example) the next query waits for the interval instead of repeating the call; without a reading to reuse, the service becomes `unavailable` with "Consultation deferred", and with a previous reading the row stays marked as a failure, with the message of that attempt — reusing the reading does not erase what happened, and only a new response brings the service back to `ok`.
 
-A linha mostra percentual das duas janelas. Não há gasto em dólar para este serviço: a API de modelos não publica preços, e inventar denominador é justamente o que este projeto evita.
+The row shows the percentage of the two windows. There is no dollar spend for this service: the model API does not publish prices, and inventing a denominator is exactly what this project avoids.
 
-### Compatibilidade com versões do Muse Code
+### Compatibility with Muse Code versions
 
-Verificado com o Muse Code **1.4.0** (`1.4.0-R4161.1`) e `auth.json` em `schema_version` 1. O conector usa duas coisas:
+Verified with Muse Code **1.4.0** (`1.4.0-R4161.1`) and `auth.json` at `schema_version` 1. The connector uses two things:
 
-- O **arquivo de login**, procurado na mesma ordem que o próprio cliente resolve no seu launcher: `token_files.meta` na configuração do applet, depois `$MUSE_AUTH_PATH`, depois `$XDG_CONFIG_HOME/muse/auth.json` e, sem ele, `~/.config/muse/auth.json`. Basta existir um `access_token` em qualquer nível do JSON — quando o arquivo passou a agrupar por `providers.meta`, em 26/09/2026, a leitura continuou funcionando sem alteração.
-- A **rota** `POST https://api.meta.ai/muse-code/key`, com `subs_usage.window` e `subs_usage.weekly`.
+- The **login file**, looked up in the same order the client itself resolves it in its launcher: `token_files.meta` in the applet configuration, then `$MUSE_AUTH_PATH`, then `$XDG_CONFIG_HOME/muse/auth.json` and, without it, `~/.config/muse/auth.json`. It is enough for an `access_token` to exist at any level of the JSON — when the file started grouping by `providers.meta`, on 2026-09-26, the reading kept working without changes.
+- The **route** `POST https://api.meta.ai/muse-code/key`, with `subs_usage.window` and `subs_usage.weekly`.
 
-O conector não executa o binário do Muse Code — nem precisa que ele esteja instalado para ler o arquivo, nem que esteja em execução —, então a versão do CLI instalada não muda o comportamento do applet. O que depende de versão é o formato do arquivo e a rota.
+The connector does not run the Muse Code binary — it does not need it installed to read the file, nor running —, so the version of the installed CLI does not change the behaviour of the applet. What depends on the version is the format of the file and the route.
 
-Quando a Meta mudar algo, o esperado é degradar e nunca inventar: arquivo ausente ou sem token → `unconfigured` (a mensagem pede `muse login`); resposta sem `subs_usage` → `unavailable`, com o último valor preservado; falha de rede → `error`, com o valor anterior marcado como leitura antiga. Nenhum desses casos vira 0%, e nenhum deles quebra o painel.
+When Meta changes something, the expectation is to degrade and never to invent: missing file or file without a token → `unconfigured` (the message asks for `muse login`); response without `subs_usage` → `unavailable`, with the last value preserved; network failure → `error`, with the previous value marked as a stale reading. None of those cases becomes 0%, and none of them breaks the panel.
 
-Se a resposta vier sem `subs_usage`, ou com os percentuais em outro nome, relate no GitHub com a saída de:
+If the response comes without `subs_usage`, or with the percentages under another name, report it on GitHub with the output of:
 
 ```bash
 python3 backend/collector.py diag meta
 ```
 
-Esse relatório traz **nomes de campos, tipos e faixa dos números**, mais a lista dos campos que o conector procura — dizendo quais estão ausentes, nulos ou com outro tipo. Nenhum valor, identificador de conta ou caminho da sua máquina. É um caminho que existe de verdade: o `diag` responde por qualquer serviço que as mensagens de falha sugiram, e um teste confere isso.
+That report brings **field names, types and the range of the numbers**, plus the list of the fields the connector looks for — saying which ones are absent, null or of another type. No value, no account identifier and no path of your machine. It is a path that really exists: `diag` answers for any service that the failure messages suggest, and a test checks that.
 
-Se você mantém mais de uma versão do Muse Code com logins em arquivos diferentes, aponte o do seu uso atual em `token_files.meta` (veja a configuração abaixo).
+If you keep more than one version of Muse Code with logins in different files, point the one of your current use in `token_files.meta` (see the configuration below).
 
-### Assinatura do Claude Code
+### Claude Code subscription
 
-As janelas da assinatura do Claude Code vêm de `GET https://api.anthropic.com/api/oauth/usage`, com `Authorization: Bearer <token do login>` e `anthropic-beta: oauth-2025-04-20`. É a mesma rota que a CLI usa no comando `/usage` e que os projetos de acompanhamento da CLI documentaram; a Anthropic não a publica como API, então ela é tratada como algo que pode mudar.
+The windows of the Claude Code subscription come from `GET https://api.anthropic.com/api/oauth/usage`, with `Authorization: Bearer <login token>` and `anthropic-beta: oauth-2025-04-20`. It is the same route the CLI uses in the `/usage` command and that the CLI tracking projects documented; Anthropic does not publish it as an API, so it is treated as something that may change.
 
-O que o conector **não** faz, e por quê:
+What the connector does **not** do, and why:
 
-- **Não faz requisição de inferência.** O rascunho que originou este conector pedia uma resposta em `/v1/messages`, com `max_tokens: 1`, só para ler os cabeçalhos `anthropic-ratelimit-unified-*`. Cada consulta consumiria um pouco da cota que o applet exibe: num applet que atualiza a cada dois minutos, seria o monitor comendo o que monitora. A rota de leitura devolve as duas janelas em JSON, sem custo de cota.
-- **Não renova nem grava credencial.** O token do Claude Code vale cerca de uma hora e é a própria CLI que o renova. Com token vencido o serviço fica em `unconfigured` com o aviso "rode `claude` para renovar" — o applet não toca no `refreshToken`.
-- **Não adivinha escala.** O percentual é usado como veio, na escala 0–100: nada de multiplicar por 100 quando o valor parece pequeno, o que transformaria 0,4% em 40%.
+- **It makes no inference request.** The draft that originated this connector asked for a response at `/v1/messages`, with `max_tokens: 1`, only to read the `anthropic-ratelimit-unified-*` headers. Each query would consume a little of the quota the applet displays: in an applet that refreshes every two minutes, that would be the monitor eating what it monitors. The reading route returns the two windows in JSON, with no quota cost.
+- **It does not renew or write a credential.** The Claude Code token is worth about an hour and it is the CLI itself that renews it. With an expired token the service stays at `unconfigured` with the warning "run `claude` to renew" — the applet does not touch the `refreshToken`.
+- **It does not guess the scale.** The percentage is used as it came, on the 0–100 scale: no multiplying by 100 when the value looks small, which would turn 0.4% into 40%.
 
-Na linha aparecem `five_hour` (ou `kind: session`) como **Janela de 5 h**, `seven_day` (ou `weekly_all`) como **Semana** e `weekly_scoped` como **Semana · <modelo>**. Entrada de tipo desconhecido é ignorada — nunca vira zero —, e sem nenhuma janela reconhecida o serviço fica em `unavailable`.
+On the row, `five_hour` (or `kind: session`) appears as **5 h window**, `seven_day` (or `weekly_all`) as **Week** and `weekly_scoped` as **Week · {model}**. An entry of an unknown type is ignored — it never becomes zero —, and without any recognized window the service stays at `unavailable`.
 
-A rota é consultada no máximo a cada 5 minutos (`claude.min_interval_seconds`), com cache privado; entre uma consulta e outra a linha aparece como leitura antiga, com o horário real — e, como no conector da Meta, uma tentativa que falhou também segura o intervalo e mantém o aviso de falha até o serviço responder de novo. O arquivo de login é procurado em `token_files.claude`, depois em `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim em `~/.claude/.credentials.json` — a ordem publicada pela Anthropic para quem roda mais de uma conta. No macOS o login fica no Keychain e não é lido daqui.
+The route is queried at most every 5 minutes (`claude.min_interval_seconds`), with a private cache; between one query and the next the row appears as a stale reading, with the real time — and, as in the Meta connector, an attempt that failed also holds the interval and keeps the failure warning until the service answers again. The login file is looked up in `token_files.claude`, then in `$CLAUDE_CONFIG_DIR/.credentials.json` and finally in `~/.claude/.credentials.json` — the order published by Anthropic for those who run more than one account. On macOS the login lives in the Keychain and is not read from here.
 
-Isto serve a quem tem assinatura **Pro, Max, Team ou Enterprise**: quem usa só chave de API não tem essas janelas, e o serviço aparece sem leitura.
+This serves those who have a **Pro, Max, Team or Enterprise** subscription: those who use only an API key do not have these windows, and the service appears without a reading.
 
-**O que ainda não foi verificado** — não há conta Anthropic nesta máquina:
+**What has not been verified yet** — there is no Anthropic account on this machine:
 
-- se a rota aceita `Bearer` com o token do login (a sondagem com token inválido devolveu 401 e o corpo reclamou de `x-api-key`, o que só um token real esclarece);
-- se o `.credentials.json` atual mantém `claudeAiOauth.accessToken`, e se o pedido precisa de outro `anthropic-beta`;
-- se o percentual vem mesmo em 0–100, premissa da decisão de não rescalar.
+- whether the route accepts `Bearer` with the login token (the probe with an invalid token returned 401 and the body complained about `x-api-key`, which only a real token clarifies);
+- whether the current `.credentials.json` keeps `claudeAiOauth.accessToken`, and whether the request needs another `anthropic-beta`;
+- whether the percentage really comes on 0–100, the premise of the decision not to rescale.
 
-Se você tem conta e o serviço não mostrar nada, relate no GitHub com a saída de:
+If you have an account and the service shows nothing, report it on GitHub with the output of:
 
 ```bash
 python3 backend/collector.py diag claude
 ```
 
-Esse relatório traz só **nomes de campos, tipos, faixa dos números** e quais janelas o conector reconheceu: nenhum valor, nenhum caminho da sua máquina e nenhum pedaço de credencial. É o que um PR precisa para ajustar o parser.
+That report brings only **field names, types, the range of the numbers** and which windows the connector recognized: no value, no path of your machine and no piece of credential. It is what a PR needs to adjust the parser.
 
-Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.json`:
+Optional configuration **without secrets** in `~/.config/cinnamon-ai-usage/config.json`:
 
 ```json
 {
   "refresh_seconds": 120,
   "credentials_path": "~/.config/secrets.env",
-  "token_files": {"nous": "~/.local/share/meu-login/auth.json"},
+  "token_files": {"nous": "~/.local/share/my-login/auth.json"},
   "enabled": {"grok": false},
-  "grok": {"team_id": "SEU_TEAM_ID"},
+  "grok": {"team_id": "YOUR_TEAM_ID"},
   "meta": {"min_interval_seconds": 900},
   "claude": {"min_interval_seconds": 300}
 }
 ```
 
-`token_files.meta` só é necessário se o login do Muse Code estiver fora do caminho padrão (`~/.config/muse/auth.json`). `token_files.claude` só é necessário se o login do Claude Code estiver fora de `$CLAUDE_CONFIG_DIR` e de `~/.claude/.credentials.json`.
+`token_files.meta` is only needed if the Muse Code login is outside the default path (`~/.config/muse/auth.json`). `token_files.claude` is only needed if the Claude Code login is outside `$CLAUDE_CONFIG_DIR` and `~/.claude/.credentials.json`.
 
-A gravação do arquivo é atômica e em modo 0600. O intervalo selecionado no applet vale para suas consultas. A janela independente usa o TTL do arquivo acima (120 segundos se ausente). O botão Atualizar força a coleta em ambos — e, se já houver uma coleta em andamento, avisa que a atualização foi ignorada em vez de mostrar falha: os valores exibidos seguem sendo os últimos lidos. Desativar um provedor no arquivo o remove das próximas coletas; uma alteração pode aguardar o TTL ou Atualizar.
+The writing of the file is atomic and in mode 0600. The interval selected in the applet counts for its queries. The standalone window uses the TTL of the file above (120 seconds if absent). The Update button forces the collection in both — and, if there is already a collection in progress, it warns that the refresh was skipped instead of showing a failure: the displayed values remain the last ones read. Disabling a provider in the file removes it from the next collections; a change may wait for the TTL or for Update.
 
-O cache fica em `~/.cache/cinnamon-ai-usage/` (diretório 0700, snapshot 0600), com gravação atômica e trava para impedir consultas duplicadas. Guarda métricas e histórico, sem tokens nem respostas brutas. Campos privados de identificação usam digest SHA-256 para evitar comparar contas diferentes e são omitidos da saída pública.
+The cache lives in `~/.cache/cinnamon-ai-usage/` (directory 0700, snapshot 0600), with atomic writing and a lock to prevent duplicate queries. It keeps metrics and history, without tokens or raw responses. Private identification fields use a SHA-256 digest to avoid comparing different accounts and are omitted from the public output.
 
-## O que significa “recente”
+## What “recent” means
 
-A primeira consulta cria a referência. Só uma mudança posterior de consumo ou saldo atribui recência aproximada. Atualizar o saldo não conta como utilizar o serviço. Por isso o clique abre com até cinco linhas: primeiro as que têm uso observado e, para completar, as de leitura mais recente — cada linha diz se há uso observado. Serviços sem leitura alguma não ocupam linha do menu; eles aparecem no balão e na janela.
+The first query creates the reference. Only a later change of consumption or balance assigns an approximate recency. Refreshing the balance does not count as using the service. That is why the click opens with up to five rows: first the ones with observed usage and, to complete, the ones with the most recent reading — each row says whether there is observed usage. Services without any reading take no menu row; they appear in the tooltip and in the window.
 
-A ordem registra **atividade observada**, não o horário exato de cada chamada. Coletas simultâneas podem produzir empates; usos fora desta máquina também podem afetar o consumo da conta. Expiração de créditos pode parecer consumo, e uma recarga simultânea pode ocultá-lo. Não associamos esse horário a um agente específico. Mudanças de conta ou de janela reiniciam a comparação. Falhas preservam a última leitura, marcada como antiga.
+The order records **observed activity**, not the exact time of each call. Simultaneous collections may produce ties; uses outside this machine may also affect the consumption of the account. Expiry of credits may look like consumption, and a simultaneous top-up may hide it. We do not associate that time with a specific agent. Changes of account or of window restart the comparison. Failures preserve the last reading, marked as stale.
 
-O saldo do DeepSeek e do Nous não vira consumo mensal por divisão por um orçamento. Créditos de recarga e rollover precisam ser considerados; nesta versão exibimos valores monetários.
+The balance of DeepSeek and Nous does not become monthly consumption by division by a budget. Top-up credits and rollover need to be considered; in this version we display monetary values.
 
-## Desenvolvimento e verificação
+## Development and verification
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -211,13 +220,13 @@ GI_TYPELIB_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muf
 LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muffin \
 cjs tests/check_cjs_api.js
 python3 -m compileall -q backend
-python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requer sessão gráfica
+python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requires a graphical session
 ```
 
-Os testes offline cobrem parsers, ausência versus zero, renovação, recência, troca de conta, falha preservando cache e isolamento de segredos. O teste JS simula o ambiente do applet para conferir cliques, timers, coleta e limite de cinco; não substitui a validação no painel real. O teste GTK abre e fecha uma janela de demonstração.
+The offline tests cover parsers, absence versus zero, renewal, recency, account switching, failure preserving the cache and isolation of secrets. The JS test simulates the applet environment to check clicks, timers, collection and the limit of five; it does not replace the validation on the real panel. The GTK test opens and closes a demo window.
 
-Arquitetura e formato: [docs/contract.md](docs/contract.md). Evidências, fontes e limitações: [docs/validation.md](docs/validation.md).
+Architecture and format: [docs/contract.md](docs/contract.md). Evidence, sources and limitations: [docs/validation.md](docs/validation.md).
 
-Para acrescentar um serviço: implemente o conector em `backend/providers.py` conforme as regras do contrato — somente leitura, sem inferência, sem renovar credencial e degradando em vez de inventar zero; registre o id em `SERVICES`; cubra o parser com fixtures em `tests/test_backend.py`; e diga no README o que foi verificado e o que não foi. Um PR é bem mais fácil de aceitar com a saída sem segredos de `python3 backend/collector.py worker <serviço>` (ou `diag <serviço>`, quando existir) no corpo.
+To add a service: implement the connector in `backend/providers.py` according to the contract rules — read-only, without inference, without renewing a credential and degrading instead of inventing zero; register the id in `SERVICES`; cover the parser with fixtures in `tests/test_backend.py`; and say in the README what was verified and what was not. A PR is far easier to accept with the secret-free output of `python3 backend/collector.py worker <serviço>` (or `diag <serviço>`, when it exists) in the body.
 
-Referência de projeto: [omarchy-ai-usage](https://github.com/rodrigo-sntg/omarchy-ai-usage), de Rodrigo Santiago, licença MIT. Esta implementação usa um contrato próprio para preservar janelas e modelos distintos.
+Project reference: [omarchy-ai-usage](https://github.com/rodrigo-sntg/omarchy-ai-usage), by Rodrigo Santiago, MIT license. This implementation uses its own contract to preserve distinct windows and models.
