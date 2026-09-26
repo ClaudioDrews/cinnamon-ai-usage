@@ -23,7 +23,7 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gio, GLib, Gtk, GdkPixbuf  # noqa: E402
 
-APP_ID = "local.claudio.CinnamonAIUsage"
+APP_ID = "claudio.drews.CinnamonAIUsage"
 WINDOW_TITLE = "Uso de IA"
 WINDOW_SUBTITLE = "Serviços de IA monitorados"
 

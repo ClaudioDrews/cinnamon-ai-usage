@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-UUID = 'ai-usage@claudio.local'
+UUID = 'ai-usage@claudio.drews'
 ROOT = Path(__file__).resolve().parent
 
 def readable_for_users(path):

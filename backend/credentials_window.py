@@ -27,7 +27,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 import credentials  # noqa: E402
 
-APP_ID = "local.claudio.CinnamonAIUsage.Credenciais"
+APP_ID = "claudio.drews.CinnamonAIUsage.Credenciais"
 WINDOW_TITLE = "Credenciais — Uso de IA"
 
 # Serviços com chave digitada: rótulo, variável principal e alternativa aceita.

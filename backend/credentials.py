@@ -22,7 +22,7 @@ import re
 import shlex
 from pathlib import Path
 
-SCHEMA_NAME = "local.claudio.CinnamonAIUsage"
+SCHEMA_NAME = "claudio.drews.CinnamonAIUsage"
 KEYRING_LABEL = "Cinnamon AI Usage"
 
 # Variáveis aceitas por serviço, na ordem de preferência.

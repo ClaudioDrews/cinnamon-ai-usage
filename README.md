@@ -64,11 +64,11 @@ Demo não lê credenciais nem altera o cache. A coleta real não faz inferência
 python3 install.py
 ```
 
-O instalador copia o applet e o backend para `~/.local/share/cinnamon/applets/ai-usage@claudio.local/`. Preserve o código fonte neste repositório. Uma versão anterior é movida para `~/.local/share/cinnamon/ai-usage-backups/` antes da substituição.
+O instalador copia o applet e o backend para `~/.local/share/cinnamon/applets/ai-usage@claudio.drews/`. Preserve o código fonte neste repositório. Uma versão anterior é movida para `~/.local/share/cinnamon/ai-usage-backups/` antes da substituição.
 
 Depois, abra **Configurações do sistema → Applets → Gerenciar**, procure **Uso de IA** e adicione ao painel. O instalador não ativa applets nem reinicia Cinnamon. Após atualização, remova e adicione o applet para carregar a nova versão. Preferências de intervalo e pausa ficam em **Configurar**, no menu de contexto.
 
-Para desinstalar, remova primeiro o applet do painel e apague somente o diretório `ai-usage@claudio.local` da pasta de applets. Cache e preferências são separados e podem ser preservados.
+Para desinstalar, remova primeiro o applet do painel e apague somente o diretório `ai-usage@claudio.drews` da pasta de applets. Cache e preferências são separados e podem ser preservados.
 
 ## Credenciais e configurações
 
