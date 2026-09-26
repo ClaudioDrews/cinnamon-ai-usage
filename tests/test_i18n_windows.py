@@ -18,8 +18,10 @@ O ``python3`` do PATH pode não ter PyGObject (o do sistema tem): sem ``gi`` ins
 abre janela de verdade é ``tests/smoke_gtk.py``, com sessão gráfica.
 """
 import contextlib
+import os
 import sys
 import tempfile
+import time
 import types
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -32,6 +34,28 @@ sys.path.insert(0, str(ROOT / 'tests'))
 
 import i18n  # noqa: E402
 import test_i18n  # noqa: E402  (a cobertura de msgid de tests/test_i18n.py, só leitura)
+
+
+@contextlib.contextmanager
+def fixed_timezone(name='America/Sao_Paulo'):
+    """O texto de data e hora é o da máquina: aqui o fuso é fixado, e dito qual é.
+
+    A hora que a janela mostra é a local, então uma asserção com hora fixa só passa em máquina
+    do mesmo fuso. O CI roda em UTC e reprovou um teste que estava certo (14:35 de UTC-3 exibido
+    como 17:35). Fixar o fuso mantém a asserção com hora literal — que é o que se quer conferir,
+    o formato por idioma — e a torna verdadeira em qualquer máquina.
+    """
+    anterior = os.environ.get('TZ')
+    os.environ['TZ'] = name
+    time.tzset()
+    try:
+        yield
+    finally:
+        if anterior is None:
+            os.environ.pop('TZ', None)
+        else:
+            os.environ['TZ'] = anterior
+        time.tzset()
 
 
 def _importable_gi() -> bool:
@@ -358,19 +382,20 @@ class UsageWindowTextTests(LanguageTestCase):
             ('pt_BR', '1234,50', '7,02 USD', '26/09/2026 14:35', '42,0% usado', '3 dias'),
             ('en', '1234.50', 'USD 7.02', 'Sep 26, 2026 2:35 PM', '42.0% used', '3 days'),
         )
-        for code, number, money, text, percent, days in cases:
-            i18n.activate(code)
-            self.assertEqual(window.format_number(1234.5), number, code)
-            self.assertEqual(window.format_money(7.02, 'USD'), money, code)
-            self.assertEqual(window.format_datetime(moment.isoformat()), text, code)
-            self.assertEqual(window.format_percent(42), percent, code)
-            self.assertEqual(window.format_duration(3 * 86400), days, code)
-            # Ausente é ausente, nunca zero — e o texto vem do catálogo.
-            self.assertEqual(window.format_percent(None), i18n.percent(None), code)
-            self.assertEqual(window.format_number('7'), i18n._('unavailable'), code)
-            self.assertEqual(window.format_money('7', 'USD'), i18n._('unavailable'), code)
-            self.assertEqual(window.format_datetime(None), i18n._('unknown time'), code)
-            self.assertEqual(window.format_relative('nada'), '', code)
+        with fixed_timezone():
+            for code, number, money, text, percent, days in cases:
+                i18n.activate(code)
+                self.assertEqual(window.format_number(1234.5), number, code)
+                self.assertEqual(window.format_money(7.02, 'USD'), money, code)
+                self.assertEqual(window.format_datetime(moment.isoformat()), text, code)
+                self.assertEqual(window.format_percent(42), percent, code)
+                self.assertEqual(window.format_duration(3 * 86400), days, code)
+                # Ausente é ausente, nunca zero — e o texto vem do catálogo.
+                self.assertEqual(window.format_percent(None), i18n.percent(None), code)
+                self.assertEqual(window.format_number('7'), i18n._('unavailable'), code)
+                self.assertEqual(window.format_money('7', 'USD'), i18n._('unavailable'), code)
+                self.assertEqual(window.format_datetime(None), i18n._('unknown time'), code)
+                self.assertEqual(window.format_relative('nada'), '', code)
 
     def test_snapshot_labels_are_drawn_from_the_catalog(self):
         snapshot = self.snapshot()
