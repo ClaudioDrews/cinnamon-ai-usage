@@ -612,6 +612,47 @@ class HistoryTests(unittest.TestCase):
         self.new['metrics'][0]['used_percent'] = 21
         self.assertIsNotNone(c.merge_history(self.new, old)['last_used_at'])
 
+    def test_the_antigravity_identifier_survives_a_language_change(self):
+        """Identidade estável do modelo sem nome, e o aumento de consumo visto ao trocar idioma.
+
+        A cota do Antigravity sem nome de modelo saía com o id montado a partir do rótulo
+        traduzido (`model:Modelo 1` em português, `model:Model 1` em inglês). Como a comparação
+        entre duas leituras é feita por id, trocar o idioma escondia o aumento: 20% → 40% contava
+        em português e **não contava** depois de mudar para inglês.
+
+        Os dois lados estão aqui: a leitura e a anterior, cada uma no seu idioma.
+        """
+        self.addCleanup(i18n.activate, i18n.language())   # o idioma do processo é global
+        payload = lambda pct: {'userStatus': {'cascadeModelConfigData': {'clientModelConfigs': [
+            {'quotaInfo': {'remainingFraction': 1 - pct / 100.0}}]}}}
+
+        def leitura(code, pct, id_gravado=None):
+            i18n.activate(code)
+            metricas = p.parse_antigravity(payload(pct))
+            if id_gravado:
+                # Registro como a versão anterior gravava: id do rótulo, sem aliases.
+                metricas[0].pop('id_aliases', None)
+                metricas[0]['id'] = id_gravado
+            return p.service('antigravity', metrics=metricas, identity='antigravity:123')
+
+        # 20% lidos em português, 40% lidos em inglês: a mesma métrica, o mesmo id.
+        antes, depois = leitura('pt_BR', 20), leitura('en', 40)
+        self.assertEqual(antes['metrics'][0]['id'], depois['metrics'][0]['id'])
+        self.assertTrue(c.detected_change(antes, depois),
+                        'idioma não pode esconder aumento de consumo')
+        self.assertEqual(c.merge_history(depois, antes)['recency_basis'], 'observed_change')
+
+        # Histórico já gravado pela versão anterior: id vindo do rótulo, sem aliases.
+        antigo = leitura('pt_BR', 20, id_gravado='model:Modelo 1')
+        self.assertNotIn('id_aliases', antigo['metrics'][0])
+        self.assertTrue(c.detected_change(antigo, depois),
+                        'a primeira coleta depois da correção compara com o histórico existente')
+        # E o caminho inverso: leitura nova (com aliases) contra a anterior sem eles.
+        self.assertTrue(c.detected_change(leitura('en', 20, id_gravado='model:Model 1'),
+                                          leitura('pt_BR', 40)))
+        # Sem aumento não há recência nova — o alias não inventa mudança.
+        self.assertFalse(c.detected_change(antes, leitura('en', 20)))
+
     def test_public_output_removes_private_identity(self):
         result = c.public({'services': [self.old]})
         self.assertNotIn('_identity', result['services'][0])

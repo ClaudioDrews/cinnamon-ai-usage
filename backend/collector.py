@@ -23,6 +23,11 @@ from providers import SERVICES, collect_provider, diagnose, number, service, sta
 # do idioma em que a leitura foi feita.
 PENDING_MESSAGE_ID = i18n.N_("Last reading available; refresh pending.")
 
+# Identificador do aviso de coleta pulada. Ele não fica no cache, mas é exibido pelo painel e
+# pela janela: sem identificador, o aviso sairia no idioma da coleta numa apresentação em outro.
+SKIPPED_MESSAGE_ID = i18n.N_("Refresh skipped: a collection is already running; "
+                             "the values are the last reading.")
+
 # Texto que versões anteriores **gravaram no cache**, antes de existir identificador: é a
 # tradução pt_BR deste mesmo msgid, e por isso sai do catálogo em vez de ficar escrita aqui —
 # nenhum idioma pode ter prosa fixa no código. Não é texto de interface: serve só para
@@ -84,12 +89,31 @@ def stale_read(snapshot, ttl=120):
     return snapshot
 
 
+def previous_metrics(previous):
+    """Métricas da leitura anterior, indexadas por **todos** os ids que elas já tiveram.
+
+    O id de uma métrica pode ter mudado de forma entre versões (o do Antigravity saía do rótulo
+    traduzido). Aceitar os ids que a métrica declara em ``id_aliases`` é o que mantém a comparação
+    com o histórico já gravado: sem isso o primeiro snapshot depois da correção pareceria trazer
+    métricas novas, e um aumento de consumo real passaria em silêncio.
+    """
+    index = {}
+    for metric in previous.get("metrics", []):
+        for key in [metric.get("id")] + list(metric.get("id_aliases") or []):
+            if key:
+                index.setdefault(key, metric)
+    return index
+
+
 def detected_change(previous, current):
     if previous.get("_identity") != current.get("_identity"):
         return False
-    before = {m["id"]: m for m in previous.get("metrics", [])}
+    before = previous_metrics(previous)
     for m in current.get("metrics", []):
         old = before.get(m["id"])
+        if old is None:
+            old = next((before[alias] for alias in (m.get("id_aliases") or [])
+                        if alias in before), None)
         if not old or (old.get("kind"), old.get("currency"), old.get("window_seconds")) != (
                 m.get("kind"), m.get("currency"), m.get("window_seconds")):
             continue
@@ -188,8 +212,9 @@ def collect(force=False, ttl_override=None):
             # continuam sendo as últimas conhecidas. Sem o aviso, o applet e a janela não têm
             # como distinguir "pulei" de "falhei" e acabam afirmando falha que não houve.
             adiado = stale_read(load_snapshot(path), ttl)
-            adiado["notice"] = i18n._("Refresh skipped: a collection is already running; "
-                                      "the values are the last reading.")
+            adiado["notice"] = i18n._(SKIPPED_MESSAGE_ID)
+            adiado["notice_id"] = SKIPPED_MESSAGE_ID
+            adiado["notice_args"] = {}
             return adiado
         old = load_snapshot(path)
         if not force and 0 <= time.time()-timestamp(old.get("generated_at")) < ttl:
@@ -283,7 +308,7 @@ def demo():
             metrics.append(metric(metric_id, kind="quota", label_id=label_id,
                                   percent=min(92, 12 + i * 7 + position * 9), window=window,
                                   reset=time.time() + window / 3 if window else None))
-        item = service(id_, source=i18n._("Simulation — no real data"), metrics=metrics)
+        item = service(id_, source_id=i18n.N_("Simulation — no real data"), metrics=metrics)
         item.update(last_used_at=stamp(time.time()-i*900), recency_basis="observed_change")
         items.append(item)
     return {"schema_version": 1, "generated_at": stamp(), "demo": True, "services": items}

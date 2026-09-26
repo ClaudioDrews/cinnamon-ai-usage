@@ -392,6 +392,25 @@ class UsageWindowTextTests(LanguageTestCase):
         ]
         self.assertEqual(wallet.missing(expected), [])
 
+    def test_the_source_of_the_reading_is_drawn_by_its_identifier(self):
+        """A origem é texto do cache como qualquer outro: com identificador, o idioma manda.
+
+        "OpenRouter · chave", gravado por uma coleta em português, não pode atravessar uma
+        apresentação em inglês — e o texto gravado segue ao lado, para quem não tem catálogo.
+        """
+        snapshot = self.snapshot()
+        servico = snapshot['services'][0]
+        servico.update({'source_id': 'OpenRouter · key', 'source_args': {},
+                        'source': 'OpenRouter · chave'})
+        for code, origem in (('pt_BR', 'OpenRouter · chave'), ('en', 'OpenRouter · key')):
+            i18n.activate(code)
+            with drawing(window) as wallet:
+                win = self.usage_window()
+                win.content = wallet.widget('content')
+                win._render_snapshot(snapshot)
+            self.assertTrue(wallet.has(
+                i18n._f(i18n._('Source: {source}'), source=origem)), code)
+
     def test_plural_of_the_no_reading_expander_follows_the_language(self):
         snapshot = self.snapshot()
         snapshot['services'].append({'id': 'extra', 'label': 'Extra', 'status': 'error'})

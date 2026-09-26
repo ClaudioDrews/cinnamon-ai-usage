@@ -107,17 +107,29 @@ def text(value, default="", limit=100):
 
 
 def window_hours(minutes):
-    """Horas de uma janela, no formato do idioma em vigor.
+    """Horas de uma janela, como **número cru**.
 
-    O número entra **cru** no marcador do msgid (``{hours}``): quem o escreve é esta casa, com o
-    separador decimal de ``i18n``, e não ``f"{horas:g}"``. Número já formatado dentro de uma frase
-    em outro idioma é justamente o defeito que o catálogo evita (docs/i18n.md).
+    Nada de formato aqui. O valor entra no marcador e quem o escreve é a apresentação, com a
+    tabela do idioma em vigor (`i18n.arg_text`): formatar na coleta gravava ``1,5`` no cache e a
+    mesma leitura aparecia como "Window of 1,5 h" numa apresentação em inglês — o número já
+    escrito num idioma dentro de uma frase em outro (docs/i18n.md, "Textos que ficam no cache").
     """
-    hours = float(minutes) / 60
-    return i18n.number(hours, 0 if hours.is_integer() else 1)
+    return float(minutes) / 60
 
 
-def metric(id_, label="", kind="", *, label_id=None, label_args=None,
+def note_part(message_id, args=None):
+    """Trecho opcional de uma nota: identificador, valores **crus** e o texto da coleta ao lado.
+
+    A nota fica no cache, e o que fica no cache se exibe pelo identificador: guardar a frase já
+    montada prenderia a nota ao idioma da coleta. Cada trecho é um registro como qualquer outro —
+    ``id`` é o msgid, ``args`` os valores crus, ``text`` o recurso de quem não tem catálogo.
+    """
+    args = dict(args or {})
+    return {"id": message_id, "args": args,
+            "text": text(i18n._f(i18n._(message_id), **args), limit=200)}
+
+
+def metric(id_, label="", kind="", *, label_id=None, label_args=None, aliases=None,
            percent=None, value=None, currency=None, window=None, reset=None):
     """Métrica de um serviço.
 
@@ -125,6 +137,10 @@ def metric(id_, label="", kind="", *, label_id=None, label_args=None,
     o msgid, o rótulo sai traduzido no idioma da coleta **e** o identificador segue junto
     no registro: os rótulos ficam no cache, e a interface precisa poder reescrevê-los no
     idioma em vigor sem recolher nada (docs/i18n.md).
+
+    ``aliases`` são ids que esta métrica já teve em leituras **gravadas** antes de o id técnico
+    deixar de depender do rótulo: a comparação com o histórico os aceita, e sem eles a primeira
+    coleta depois da correção apareceria como métrica nova, sem mudança de consumo.
     """
     p = number(percent)
     result = {"id": id_, "label": text(label), "kind": kind,
@@ -136,16 +152,23 @@ def metric(id_, label="", kind="", *, label_id=None, label_args=None,
         result["label"] = text(i18n._f(i18n._(label_id), **args))
         result["label_id"] = label_id
         result["label_args"] = args
+    if aliases:
+        result["id_aliases"] = list(aliases)
     return result
 
 
 def service(id_, status="ok", message="", source="", metrics=None, identity=None, *,
-            message_id=None, message_args=None):
+            message_id=None, message_args=None,
+            source_id=None, source_args=None):
     """Serviço do contrato.
 
     Com ``message_id`` (o msgid em inglês) e ``message_args``, o ``message`` é o texto no
     idioma da coleta e os dois campos são gravados ao lado — é o que permite a leitura
     reaproveitada do cache aparecer no idioma em vigor, seja ele qual for.
+
+    A origem segue a mesma regra: ``source_id`` é o msgid da frase de origem, ``source`` o texto
+    no idioma da coleta e ``source_args`` os valores crus. A janela mostra a origem pelo
+    identificador, então "OpenRouter · chave" não fica preso numa apresentação inglesa.
     """
     result = {"id": id_, "label": SERVICES[id_], "status": status, "message": message,
               "source": source, "read_at": stamp() if status == "ok" else None,
@@ -155,6 +178,11 @@ def service(id_, status="ok", message="", source="", metrics=None, identity=None
         result["message"] = text(i18n._f(i18n._(message_id), **args), limit=200)
         result["message_id"] = message_id
         result["message_args"] = args
+    if source_id is not None:
+        args = dict(source_args or {})
+        result["source"] = text(i18n._f(i18n._(source_id), **args))
+        result["source_id"] = source_id
+        result["source_args"] = args
     if identity:
         # Private cache baseline discriminator; the identifier itself is never persisted.
         result["_identity"] = hashlib.sha256(str(identity).encode()).hexdigest()
@@ -312,7 +340,8 @@ def codex(config=None):
         p.stdin.close(); p.stdout.close()
     if not metrics:
         raise Unavailable(i18n.N_("The current login did not return Codex quotas."))
-    return service("codex", source="Codex app-server", metrics=metrics, identity=identity)
+    return service("codex", source_id=i18n.N_("Codex app-server"), metrics=metrics,
+                   identity=identity)
 
 
 def parse_openrouter(payload):
@@ -337,7 +366,7 @@ def parse_openrouter(payload):
 
 def openrouter(config=None):
     key = require_key("OPENROUTER_API_KEY", config)
-    return service("openrouter", source=i18n._("OpenRouter · key"), identity=key,
+    return service("openrouter", source_id=i18n.N_("OpenRouter · key"), identity=key,
                    metrics=parse_openrouter(request("https://openrouter.ai/api/v1/key", key)))
 
 
@@ -350,7 +379,7 @@ def parse_deepseek(payload):
 
 def deepseek(config=None):
     key = require_key("DEEPSEEK_API_KEY", config)
-    return service("deepseek", source=i18n._("DeepSeek · balance"), identity=key,
+    return service("deepseek", source_id=i18n.N_("DeepSeek · balance"), identity=key,
                    metrics=parse_deepseek(request("https://api.deepseek.com/user/balance", key)))
 
 
@@ -384,7 +413,8 @@ def nous(config=None):
     if not token:
         raise Unavailable(i18n.N_("Nous Portal token not configured."), "unconfigured")
     payload = request("https://portal.nousresearch.com/api/oauth/account", token)
-    return service("nous", source=i18n._("Nous Portal · OAuth token"), metrics=parse_nous(payload),
+    return service("nous", source_id=i18n.N_("Nous Portal · OAuth token"),
+                   metrics=parse_nous(payload),
                    identity=(payload.get("organisation") or {}).get("id"))
 
 
@@ -413,7 +443,7 @@ def opencode(config=None):
     metrics = parse_go(payload)
     if not metrics:
         raise Unavailable(i18n.N_("Go response without recognized quotas; experimental connector."))
-    return service("opencode", source=i18n._("OpenCode Go · usage (experimental)"),
+    return service("opencode", source_id=i18n.N_("OpenCode Go · usage (experimental)"),
                    metrics=metrics, identity=token)
 
 
@@ -455,7 +485,8 @@ def grok(config):
                                   "with the credentials to query the xAI API."), "unconfigured")
     payload = request(f"https://management-api.x.ai/v1/billing/teams/{team}/prepaid/balance", key)
     return service("grok",
-                   source=i18n._("xAI Management API · does not include the Grok subscription"),
+                   source_id=i18n.N_(
+                       "xAI Management API · does not include the Grok subscription"),
                    message_id=i18n.N_("xAI records prepaid credits as a negative value in total.val; "
                                       "the displayed balance is the available credit."),
                    identity=team, metrics=parse_grok(payload))
@@ -490,11 +521,31 @@ def parse_antigravity(payload):
         # identificador, porque rótulo fica no cache e é exibido pelo identificador.
         tem_nome = bool(name)
         label = text(name, i18n._f(i18n._("Model {number}"), number=index + 1))
-        out.append(metric("model:" + label, label, "quota", percent=(1 - fraction) * 100,
+        # O id técnico **não** sai do rótulo: rótulo é texto e muda com o idioma, enquanto o id é
+        # o que decide o que é a mesma métrica entre duas leituras (`detected_change`). Antes,
+        # sem nome de modelo, a mesma cota era `model:Modelo 1` em português e `model:Model 1` em
+        # inglês: trocar o idioma escondia o aumento de consumo. O id vem do dado bruto da
+        # configuração e, sem ele, da posição do modelo na resposta.
+        bruto = text((config.get("modelOrAlias") or {}).get("model"), "")
+        out.append(metric("model:" + (bruto or text(name, "") or str(index + 1)), label, "quota",
+                          percent=(1 - fraction) * 100,
                           reset=quota.get("resetTime"),
                           label_id=None if tem_nome else i18n.N_("Model {number}"),
-                          label_args=None if tem_nome else {"number": index + 1}))
+                          label_args=None if tem_nome else {"number": index + 1},
+                          aliases=None if tem_nome else legacy_model_ids(index + 1)))
     return out
+
+
+def legacy_model_ids(numero):
+    """Ids que este projeto **já gravou** para um modelo sem nome, em cada idioma do catálogo.
+
+    Enquanto o id saía do rótulo, o mesmo modelo virava ``model:Modelo 1`` em pt_BR e
+    ``model:Model 1`` em inglês. Eles seguem em ``id_aliases`` para a primeira leitura depois da
+    correção continuar sendo comparada com o histórico que já está no disco de quem atualiza — os
+    ids vêm do catálogo (não escritos à mão), então acompanham qualquer idioma que ele traduza.
+    """
+    msgid = i18n.N_("Model {number}")
+    return ["model:" + i18n._f(i18n._t(msgid, code), number=numero) for code in i18n.LANGUAGES]
 
 
 def antigravity(config=None):
@@ -547,7 +598,7 @@ def antigravity(config=None):
                     metrics = parse_antigravity(request(base+method, data=body, headers=headers, local=True, timeout=3))
                     if metrics:
                         return service("antigravity",
-                                       source=i18n._("Antigravity · local server (experimental)"),
+                                       source_id=i18n.N_("Antigravity · local server (experimental)"),
                                        metrics=metrics, identity="antigravity:"+pid)
                 except Unavailable:
                     continue
@@ -703,20 +754,20 @@ def quota_mark_failure(name, identity, message, message_args=None):
                        attempt_message_id=ident, attempt_message_args=args)
 
 
-def quota_reused_service(name, cached, source, identity, message=None, message_id=None):
+def quota_reused_service(name, cached, source_id, identity, message=None, message_id=None):
     """Serviço a partir da leitura reaproveitada, com o estado real da última tentativa.
 
     O texto veio do cache, então vai com o identificador: a interface reescreve no idioma em
     vigor em vez de repetir a frase no idioma em que a leitura foi feita.
     """
     if cached.get("failure"):
-        result = service(name, "stale", source=source, metrics=cached["metrics"],
+        result = service(name, "stale", source_id=source_id, metrics=cached["metrics"],
                          identity=identity, message=cached["failure"],
                          message_id=cached.get("failure_id") or None,
                          message_args=cached.get("failure_args") or None)
         result["stale_reason"] = "failure"
     else:
-        result = service(name, source=source, metrics=cached["metrics"], identity=identity,
+        result = service(name, source_id=source_id, metrics=cached["metrics"], identity=identity,
                          message_id=message_id)
         if message_id is None:
             result["message"] = text(message or "", limit=200)
@@ -783,27 +834,26 @@ def parse_meta(payload):
 
 
 def meta_note_args(payload):
-    """Trechos opcionais da nota da assinatura, como argumentos do identificador.
+    """Trechos opcionais da nota da assinatura, como **dados**.
 
-    Plano e aviso de percentual acima de 100% existem ou não conforme a resposta, então entram em
-    ``{details}`` em vez de costurados dentro do msgid: a nota fica no cache, e o que fica no cache
-    se exibe pelo identificador (docs/i18n.md, "Textos que ficam no cache").
+    Plano e aviso de percentual acima de 100% existem ou não conforme a resposta, então cada um é
+    um trecho com identificador próprio dentro de ``{details}``, com os valores **crus** ao lado:
+    o plano é dado do serviço e o percentual é número cru, escrito pelo idioma em vigor na hora de
+    mostrar. Montar a frase já traduzida aqui prendia a nota ao idioma da coleta — a mesma leitura
+    exibida em inglês mostrava "Plano: Pro. A Meta relatou 125,5% de uso" (docs/i18n.md).
     """
     usage = payload.get("subs_usage") or {}
     partes = []
     plano = text(payload.get("subs_tier_name"), "")
     if plano:
-        partes.append(i18n._f(i18n._("Plan: {plan}."), plan=plano))
+        partes.append(note_part(i18n.N_("Plan: {plan}."), {"plan": plano}))
     relatado = [number((usage.get(k) or {}).get("used_percent")) for k in ("window", "weekly")]
     acima = [p for p in relatado if p is not None and p > 100]
     if acima:
-        valor = max(acima)
-        # Percentual relatado é dado: quem o escreve é i18n, com o separador do idioma em vigor.
-        texto = i18n.number(valor, 0 if float(valor).is_integer() else 1)
-        partes.append(i18n._f(
-            i18n._("Meta reported {percent}% usage; the applet bar stops at 100%."), percent=texto))
-    details = " ".join(partes)
-    return {"details": (" " + details) if details else ""}
+        partes.append(note_part(
+            i18n.N_("Meta reported {percent}% usage; the applet bar stops at 100%."),
+            {"percent": max(acima)}))
+    return {"details": partes}
 
 
 def meta_message(payload):
@@ -823,7 +873,7 @@ def meta(config=None):
         raise Unavailable(i18n.N_("Muse Code login not found; run `muse login` to read the Meta "
                                   "subscription."), "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
-    source = i18n._("Muse Code · Meta subscription")
+    source = i18n.N_("Muse Code · Meta subscription")
     interval = meta_interval(config)
     cached = meta_read_cache(config, identity)
     if cached:
@@ -935,16 +985,16 @@ def parse_claude(payload):
 
 
 def claude_note_args(oauth):
-    """Trechos opcionais da nota: plano e tier do login, como argumentos do identificador."""
+    """Trechos opcionais da nota: plano e tier do login, como dados e por identificador."""
     plano = text(oauth.get("subscriptionType"), "") if isinstance(oauth, dict) else ""
     tier = text(oauth.get("rateLimitTier"), "") if isinstance(oauth, dict) else ""
     if plano and tier:
-        parte = i18n._f(i18n._("Plan: {plan} · {tier}."), plan=plano, tier=tier)
+        partes = [note_part(i18n.N_("Plan: {plan} · {tier}."), {"plan": plano, "tier": tier})]
     elif plano or tier:
-        parte = i18n._f(i18n._("Plan: {plan}."), plan=plano or tier)
+        partes = [note_part(i18n.N_("Plan: {plan}."), {"plan": plano or tier})]
     else:
-        parte = ""
-    return {"details": (" " + parte) if parte else ""}
+        partes = []
+    return {"details": partes}
 
 
 def claude_message(payload, oauth):
@@ -974,7 +1024,7 @@ def claude(config=None):
                                       "session (the applet does not renew credentials)."),
                               "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
-    source = i18n._("Claude Code · subscription (not verified)")
+    source = i18n.N_("Claude Code · subscription (not verified)")
     interval = claude_interval(config)
     cached = quota_reuse("claude", interval, identity)
     if cached:

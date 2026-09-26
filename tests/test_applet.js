@@ -113,6 +113,7 @@ vm.runInContext(fs.readFileSync('applet/applet.js', 'utf8') +
     '\nglobalThis.createApplet = main;' +
     '\nglobalThis.text = t => _(t);' +
     '\nglobalThis.recordText = _recordText;' +
+    '\nglobalThis.fill = _f;' +
     '\nglobalThis.language = () => _language;' +
     '\nglobalThis.catalogFor = catalogFor;' +
     '\nglobalThis.parseMo = parseMo;' +
@@ -386,13 +387,76 @@ assert.equal(context.recordText({label_id: 'Update', label: 'Atualizar'},
 assert.equal(context.recordText({label: 'Semana · Opus'}, 'label_id', 'label_args', 'label'),
              'Semana · Opus');
 assert.equal(context.recordText({}, 'label_id', 'label_args', 'label'), '');
-// Arg bruto entra como está: número formatado não é reformatado na apresentação — o que a
-// coleta formatou em pt_BR continua com vírgula mesmo na tela em inglês. Por isso número
-// formatado não vai para msgid de rótulo: quem formata é a apresentação.
+// Arg de **texto** entra como está: o que uma coleta antiga gravou formatado não é
+// reinterpretado. Por isso número formatado não vai para msgid de rótulo, e por isso a forma
+// nova de gravar não invalida o snapshot que já está no disco.
 assert.equal(context.recordText({label_id: '{label}: {percent} used',
                                  label_args: {label: 'Janela', percent: '42,0%'},
                                  label: 'Janela: 42,0% usado'},
                                 'label_id', 'label_args', 'label'), 'Janela: 42,0% used');
+// Arg de **número** é escrito aqui, com o separador do idioma em vigor: é a mesma regra de
+// `i18n.arg_text` no backend. Gravado como texto, `1,5` atravessava a troca de idioma e a tela
+// em inglês dizia "Window of 1,5 h".
+instance('pt_BR', ptSession);
+const janelaFracionaria = {label_id: 'Window of {hours} h', label_args: {hours: 1.5},
+                           label: 'Janela de 1,5 h'};
+assert.equal(context.recordText(janelaFracionaria, 'label_id', 'label_args', 'label'),
+             'Janela de 1,5 h');
+instance('en', enSession);
+assert.equal(context.recordText(janelaFracionaria, 'label_id', 'label_args', 'label'),
+             'Window of 1.5 h');
+assert.equal(context.fill('{hours} h', {hours: 5}), '5 h');         // inteiro sem casa decimal
+assert.equal(context.fill('{hours} h', {hours: 1.5}), '1.5 h');
+assert.equal(context.fill('{hours} h', {hours: '1,5'}), '1,5 h');   // texto passa como veio
+const balde = {label_id: '{name} · {hours} h window', label_args: {name: 'Outro balde',
+                                                                  hours: 168},
+               label: 'antigo'};
+assert.equal(context.recordText(balde, 'label_id', 'label_args', 'label'),
+             'Outro balde · 168 h window');
+instance('pt_BR', ptSession);
+assert.equal(context.fill('{hours} h', {hours: 1.5}), '1,5 h');
+assert.equal(context.recordText(balde, 'label_id', 'label_args', 'label'),
+             'Outro balde · janela de 168 h');
+// Trecho da nota: identificador + valores crus por trecho, compostos no idioma em vigor, com o
+// espaço que separa o bloco da frase. A nota era montada em português **na coleta** e aparecia
+// assim numa tela em inglês ("Plano: Pro … 125,5% de uso").
+const notaDaMeta = {
+    message_id: 'Application subscription; not API usage billing.{details}',
+    message: 'nota da coleta',
+    message_args: {details: [
+        {id: 'Plan: {plan}.', args: {plan: 'Pro'}, text: 'Plano: Pro.'},
+        {id: 'Meta reported {percent}% usage; the applet bar stops at 100%.',
+         args: {percent: 125.5}, text: 'A Meta relatou 125,5% de uso; a barra do applet vai até 100%.'}]}};
+assert.equal(context.recordText(notaDaMeta, 'message_id', 'message_args', 'message'),
+             'Assinatura do aplicativo; não é a cobrança por uso da API. Plano: Pro. '
+             + 'A Meta relatou 125,5% de uso; a barra do applet vai até 100%.');
+instance('en', enSession);
+assert.equal(context.recordText(notaDaMeta, 'message_id', 'message_args', 'message'),
+             'Application subscription; not API usage billing. Plan: Pro. '
+             + 'Meta reported 125.5% usage; the applet bar stops at 100%.');
+// Nota sem trecho opcional: nenhum espaço sobra no fim da frase.
+assert.equal(context.recordText(
+    {message_id: 'Application subscription; not API usage billing.{details}',
+     message_args: {details: []}, message: 'nota'},
+    'message_id', 'message_args', 'message'), 'Application subscription; not API usage billing.');
+// Trecho sem identificador no catálogo cai no texto gravado; sem texto e sem catálogo, no
+// próprio msgid — o trecho nunca desaparece da frase em silêncio.
+assert.equal(context.fill('nota.{details}', {details: [
+    {id: 'Frase de conector novo.', args: {}, text: 'Frase gravada.'}]}), 'nota. Frase de conector novo.');
+// O aviso da coleta pulada também é texto do cache: com identificador, o aviso de uma coleta
+// feita em português sai em inglês no painel em inglês, sem recolher nada (a janela já lia
+// `notice_id`; o painel lia o texto direto).
+const noticias = {notice_id: 'Refresh skipped: a collection is already running;'
+                              + ' the values are the last reading.',
+                  notice_args: {},
+                  notice: 'Atualização ignorada: já há uma coleta em andamento;'
+                          + ' os valores são os últimos lidos.'};
+instance('pt_BR', ptSession);
+assert.equal(context.recordText(noticias, 'notice_id', 'notice_args', 'notice'),
+             'Atualização ignorada: já há uma coleta em andamento; os valores são os últimos lidos.');
+instance('en', enSession);
+assert.equal(context.recordText(noticias, 'notice_id', 'notice_args', 'notice'),
+             'Refresh skipped: a collection is already running; the values are the last reading.');
 // Tradução idêntica ao original é entrada presente, não entrada ausente: `{hours} h` está no
 // catálogo com o mesmo texto, e comparar tradução com msgid classificaria essa entrada como
 // falta — o rótulo `99 h` da coleta antiga venceria o identificador com `hours=3`. É o caso
@@ -496,4 +560,4 @@ applet.on_applet_removed_from_panel();
 assert.equal(timers.size, 0);
 assert(applet.settings.finalized);
 console.log('Applet: construction, subprocess tuple, clicks, top five, frozen menu, errors, '
-    + 'language crossing, cached text and cleanup OK');
+    + 'language crossing, cached text (raw numbers, note parts, notice), cleanup OK');

@@ -664,7 +664,10 @@ class UsageWindow(Gtk.ApplicationWindow):
         header.pack_end(status, False, False, 0)
         box.pack_start(header, False, False, 0)
 
-        source = service.get("source")
+        # A origem também é texto do cache: o identificador manda, e o texto gravado é o recurso
+        # de quem não tem catálogo — "OpenRouter · chave" numa leitura feita em português aparece
+        # "OpenRouter · key" numa janela em inglês, sem recolher nada.
+        source = i18n.record_text(service, "source_id", "source_args", "source")
         details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         if isinstance(source, str) and source.strip():
             self._add_line(details, i18n._f(i18n._("Source: {source}"), source=source), dim=True)

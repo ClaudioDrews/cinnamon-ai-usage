@@ -46,9 +46,29 @@ function _n(singular, plural, n) {
     return forms[index] !== undefined ? forms[index] : forms[0];
 }
 
+// Valor de marcador de um registro que veio do cache: texto entra como veio; **número cru** é
+// escrito pela tabela do idioma (`1,5` em pt_BR, `1.5` em inglês) e trecho com identificador é
+// resolvido aqui. É a mesma regra de `i18n.arg_text` no backend — guardar o número formatado
+// prendia a leitura ao idioma da coleta ("Janela de 1,5 h" numa tela em inglês).
+function _argValue(value) {
+    if (typeof value === 'number' && isFinite(value))
+        return formatNumber(value, Number.isInteger(value) ? 0 : 1, _language);
+    if (Array.isArray(value)) {
+        const parts = value.map(_argValue).filter(part => part);
+        return parts.length ? ' ' + parts.join(' ') : '';
+    }
+    if (value && typeof value === 'object') {
+        const trecho = _recordText(value, 'id', 'args', 'text');
+        // Trecho sem texto gravado e sem entrada no catálogo cai no próprio msgid: um trecho da
+        // nota nunca desaparece da frase em silêncio (é a mesma regra de `i18n.arg_text`).
+        return trecho || (typeof value.id === 'string' ? _f(value.id, value.args) : '');
+    }
+    return value === undefined || value === null ? '' : String(value);
+}
+
 function _f(text, values) {
     return text.replace(/\{(\w+)\}/g, (whole, name) =>
-        Object.prototype.hasOwnProperty.call(values || {}, name) ? String(values[name]) : whole);
+        Object.prototype.hasOwnProperty.call(values || {}, name) ? _argValue(values[name]) : whole);
 }
 
 // Texto que veio do cache: o identificador (msgid) manda, e o texto gravado é só o recurso
@@ -473,9 +493,11 @@ class AIUsageApplet extends Applet.IconApplet {
     }
 
     // Aviso público do coletor (por exemplo, coleta pulada por já haver outra em andamento).
+    // Também é texto do cache: o identificador manda, e o texto gravado é o recurso de quem não
+    // tem catálogo — o aviso de uma coleta em português aparece em inglês no painel em inglês.
     _notice() {
-        const aviso = this._snapshot && this._snapshot.notice;
-        return typeof aviso === 'string' && aviso ? aviso : null;
+        const aviso = _recordText(this._snapshot, 'notice_id', 'notice_args', 'notice');
+        return aviso ? aviso : null;
     }
 
     // Indicador de erro separado de cota: nomeia quem falhou, sem tocar na cor da cota.

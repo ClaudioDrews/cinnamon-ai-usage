@@ -64,7 +64,6 @@ NOT_PROSE = {
     'i18n.py': {},
     'providers.py': {
         'Claude Code': 'nome de serviço, não texto traduzível',
-        'Codex app-server': 'nome de serviço, não texto traduzível',
         'Grok / xAI': 'nome de serviço, não texto traduzível',
         'Loopback only': 'erro de programação (ValueError), não texto de tela',
         'Meta AI (Muse Code)': 'nome de serviço, não texto traduzível',
@@ -281,6 +280,12 @@ def source_calls():
     singles |= {unescape(text) for text in found_s}
     plurals |= {unescape(text) for text in found_p}
     return singles, plurals, offences
+
+
+def i18n_part(msgid, args):
+    """Trecho de nota como o registro o guarda: identificador, valores crus e texto da coleta."""
+    return {'id': msgid, 'args': dict(args),
+            'text': i18n._f(i18n._(msgid), **args)}
 
 
 def looks_like_prose(value):
@@ -724,13 +729,31 @@ class CachedTextPolicyTests(unittest.TestCase):
         self.assertEqual(i18n.record_text(saved_in_pt),
                          'Última leitura disponível; atualização pendente.')
 
-    def test_arguments_are_filled_and_kept_raw(self):
-        """Marcador recebe valor bruto e não é reformatado.
+    def test_a_raw_number_is_written_by_the_language_in_force(self):
+        """Número gravado **cru** é escrito na hora de mostrar, com o separador do idioma.
 
-        É por isso que número formatado não entra em msgid de rótulo: quem formata é a
-        apresentação, com o idioma em vigor (`formatPercent` no applet, `i18n.percent` na
-        janela). O que a coleta formatou fica no idioma em que ela formatou.
+        Guardá-lo já formatado prendia a leitura ao idioma da coleta: 90 minutos gravados em
+        português apareciam como "Window of 1,5 h" numa apresentação em inglês.
         """
+        self.assertEqual(i18n.arg_text(1.5), '1,5')
+        self.assertEqual(i18n.arg_text(90), '90')        # inteiro não ganha casa decimal
+        record = {'label_id': 'Window of {hours} h', 'label_args': {'hours': 1.5},
+                  'label': 'Janela de 1,5 h'}
+        for code, esperado in (('pt_BR', 'Janela de 1,5 h'), ('en', 'Window of 1.5 h')):
+            i18n.activate(code)
+            self.assertEqual(i18n.record_text(record, 'label_id', 'label_args', 'label'),
+                             esperado, code)
+        self.assertEqual(i18n._f('{label}: {percent} used', label='Opus', percent=42),
+                         'Opus: 42 used')
+
+    def test_text_arguments_come_through_untouched(self):
+        """Texto passa como veio: dado do serviço e argumento de coleta antiga seguem legíveis.
+
+        Só número é escrito pela apresentação. Trocar a forma de gravar não reinterpreta o que
+        um snapshot anterior gravou, e nome de balde ou de plano é dado, não texto nosso.
+        """
+        for valor in ('Outro balde', 'Muse Code Everyday Usage', '1,5', '{plan}'):
+            self.assertEqual(i18n.arg_text(valor), valor)
         record = {'label_id': '{label}: {percent} used',
                   'label_args': {'label': 'Janela de 5 h', 'percent': '42,0%'},
                   'label': 'Janela de 5 h: 42,0% usado'}
@@ -739,8 +762,39 @@ class CachedTextPolicyTests(unittest.TestCase):
         i18n.activate('en')
         self.assertEqual(i18n.record_text(record, 'label_id', 'label_args', 'label'),
                          'Janela de 5 h: 42,0% used')
-        self.assertEqual(i18n._f('{label}: {percent} used', label='Opus', percent=42),
-                         'Opus: 42 used')
+
+    def test_a_part_list_is_composed_in_the_language_in_force(self):
+        """`{details}` é lista de trechos: identificador + valores crus, composta ao mostrar.
+
+        Cada trecho guarda o texto do idioma da coleta ao lado, como qualquer registro; o que
+        manda é o identificador. Sem trecho nenhum, nenhum espaço sobra na frase.
+        """
+        parts = [i18n_part('Plan: {plan}.', {'plan': 'Pro'}),
+                 i18n_part('Meta reported {percent}% usage; the applet bar stops at 100%.',
+                           {'percent': 125.5})]
+        record = {'message_id': 'Application subscription; not API usage billing.{details}',
+                  'message_args': {'details': parts}, 'message': 'nota da coleta'}
+        self.assertEqual(i18n.record_text(record),
+                         'Assinatura do aplicativo; não é a cobrança por uso da API.'
+                         ' Plano: Pro. A Meta relatou 125,5% de uso; a barra do applet vai até 100%.')
+        i18n.activate('en')
+        self.assertEqual(i18n.record_text(record),
+                         'Application subscription; not API usage billing.'
+                         ' Plan: Pro. Meta reported 125.5% usage; the applet bar stops at 100%.')
+        # Trecho cujo identificador o catálogo não conhece cai no texto gravado; sem texto
+        # nenhum, cai no próprio msgid (inglês) — nunca desaparece da frase.
+        i18n.activate('pt_BR')
+        desconhecido = {'id': 'Frase de conector novo.', 'args': {}, 'text': 'Frase gravada.'}
+        self.assertEqual(i18n.arg_text([desconhecido]), ' Frase gravada.')
+        self.assertEqual(i18n.arg_text([{'id': 'Frase de conector novo.', 'args': {}}]),
+                         ' Frase de conector novo.')
+        # Sem trecho, o bloco é vazio: a frase não ganha espaço solto no fim.
+        i18n.activate('en')
+        self.assertEqual(i18n.arg_text([]), '')
+        self.assertEqual(i18n.arg_text(None), '')
+        self.assertEqual(i18n.record_text({'message_id': 'Window of {hours} h',
+                                           'message_args': {'details': []},
+                                           'message': 'nota'}), 'Window of {hours} h')
 
     def test_missing_or_unknown_identifier_falls_back_to_the_saved_text(self):
         self.assertEqual(i18n.record_text({'message': 'Frase antiga, sem identificador.'}),

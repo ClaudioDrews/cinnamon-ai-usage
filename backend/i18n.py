@@ -216,15 +216,51 @@ def _n(singular: str, plural: str, n) -> str:
     return catalog.ngettext(singular, plural, n)
 
 
-def _f(text: str, **values) -> str:
-    """Substitui ``{nome}`` no msgid pelos valores, sem formatar número nenhum.
+def arg_text(value) -> str:
+    """Texto de um valor de marcador de um registro persistido, no idioma em vigor.
 
-    Número entra já formatado por ``number``/``percent``/``money``: assim o
-    separador decimal vem de LANGUAGES e não do ambiente, e um ``{}`` solto em
-    idioma nenhum (ou em ordem diferente) não desalinha a frase.
+    Argumento guardado no cache é **dado**: quem o transforma em texto é a apresentação, e é
+    aqui que isso acontece (docs/i18n.md, "Textos que ficam no cache"). Três formas:
+
+    - **texto**: entra como veio — dado do serviço (`{name}`, `{model}`), nome de plano, ou o
+      argumento que uma coleta antiga gravou já formatado, que continua legível como está;
+    - **número**: quem o escreve é a tabela do idioma (`number`), sem casas decimais quando o
+      valor é inteiro e com uma casa quando é fracionário — `1,5` em pt_BR, `1.5` em inglês;
+    - **trecho**: ``{"id": msgid, "args": {...}, "text": texto gravado}``, resolvido como
+      qualquer registro. **Lista de trechos** — a forma do marcador `{details}` — sai com os
+      trechos separados por um espaço, precedida do espaço que separa o bloco da frase.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float, list, dict)):
+        return "" if value is None else str(value)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        # Número cru: nada de formato fixo. `1,5 h` em pt_BR e `1.5 h` em inglês saem da
+        # mesma leitura gravada, que é o ponto de guardar o número em vez do texto.
+        return number(value, 0 if float(value).is_integer() else 1)
+    if isinstance(value, list):
+        parts = [arg_text(item) for item in value]
+        parts = [part for part in parts if part]
+        return (" " + " ".join(parts)) if parts else ""
+    resolved = record_text(value, "id", "args", "text")
+    if resolved:
+        return resolved
+    # Trecho sem texto gravado e sem entrada no catálogo cai no próprio msgid: um trecho da nota
+    # nunca desaparece da frase em silêncio.
+    ident = value.get("id")
+    return _f(ident, **(value.get("args") or {})) if isinstance(ident, str) else ""
+
+
+def _f(text: str, **values) -> str:
+    """Substitui ``{nome}`` no msgid pelos valores, cada um escrito pelo idioma em vigor.
+
+    Texto já pronto entra como veio; número cru é escrito por `arg_text` com o separador do
+    idioma, e trecho com identificador é resolvido no idioma em vigor. Assim o mesmo registro
+    gravado aparece inteiro em qualquer idioma — ``42,0%`` numa apresentação em português e
+    ``42.0%`` numa em inglês —, sem recolher nada (docs/i18n.md).
     """
     for name, value in values.items():
-        text = text.replace("{" + name + "}", str(value))
+        text = text.replace("{" + name + "}", arg_text(value))
     return text
 
 

@@ -97,9 +97,11 @@ class LabelIdentifierTests(ProviderTestCase):
             metric = p.parse_meta({'subs_usage': {'window': {
                 'used_percent': 3, 'window_duration_mins': 300}}})[0]
             self.assertEqual(metric['label_id'], WINDOW_HOURS, code)
-            self.assertEqual(metric['label_args'], {'hours': '5'}, code)
+            # Horas entram **cruas** no marcador: quem as escreve é a apresentação, no idioma
+            # em vigor, e não a coleta no idioma em que ela rodou.
+            self.assertEqual(metric['label_args'], {'hours': 5}, code)
             self.assertEqual(metric['label'],
-                             i18n._f(i18n._(WINDOW_HOURS), hours='5'), code)
+                             i18n._f(i18n._(WINDOW_HOURS), hours=5), code)
             self.assertEqual(metric['window_seconds'], 18000, code)
 
     def test_the_window_without_duration_is_its_own_identifier(self):
@@ -162,10 +164,10 @@ class LabelIdentifierTests(ProviderTestCase):
             'other': {'limitName': 'Outro balde',
                       'secondary': {'usedPercent': 90, 'windowDurationMins': 10080}}}})
         self.assertEqual([m['label_id'] for m in metrics], [WINDOW_WITH_NAME, WINDOW_WITH_NAME])
-        self.assertEqual(metrics[0]['label_args'], {'name': 'codex', 'hours': '5'})
-        self.assertEqual(metrics[1]['label_args'], {'name': 'Outro balde', 'hours': '168'})
+        self.assertEqual(metrics[0]['label_args'], {'name': 'codex', 'hours': 5})
+        self.assertEqual(metrics[1]['label_args'], {'name': 'Outro balde', 'hours': 168})
         self.assertEqual(metrics[1]['label'],
-                         i18n._f(i18n._(WINDOW_WITH_NAME), name='Outro balde', hours='168'))
+                         i18n._f(i18n._(WINDOW_WITH_NAME), name='Outro balde', hours=168))
 
     def test_a_bucket_without_duration_is_a_quota_of_that_bucket(self):
         metrics = p.parse_codex({'rateLimitsByLimitId': {
@@ -186,9 +188,32 @@ class LabelIdentifierTests(ProviderTestCase):
         self.assertEqual(nameless['label_id'], MODEL_NUMBER)
         self.assertEqual(nameless['label_args'], {'number': 2})
         self.assertEqual(nameless['label'], i18n._f(i18n._(MODEL_NUMBER), number=2))
-        # O identificador da métrica continua saindo do rótulo exibido: nada foi renomeado.
+        # Nome de modelo é dado: continua sendo o id, como sempre foi.
         self.assertEqual(named['id'], 'model:Claude Sonnet 4.6')
-        self.assertEqual(nameless['id'], 'model:' + i18n._f(i18n._(MODEL_NUMBER), number=2))
+        # Sem nome, o id **não** sai do rótulo (que é texto e muda de idioma): vem da posição
+        # do modelo na resposta, e é o mesmo em pt_BR e em inglês.
+        self.assertEqual(nameless['id'], 'model:2')
+        for code in ('pt_BR', 'en'):
+            self.assertIn('model:' + i18n._f(i18n._t(MODEL_NUMBER, code), number=2),
+                          nameless['id_aliases'], code)
+        self.assertEqual(len(nameless['id_aliases']), len(i18n.LANGUAGES))
+
+    def test_the_antigravity_identifier_is_the_same_in_every_language(self):
+        """A mesma resposta, em dois idiomas, tem de dar os **mesmos** ids.
+
+        Enquanto o id saía do rótulo traduzido, a mesma cota era `model:Modelo 1` em português e
+        `model:Model 1` em inglês — a comparação com a leitura anterior deixava de casar as duas e
+        um aumento de consumo real passava em silêncio (a regressão completa, com
+        `detected_change`, está em `tests/test_backend.py`).
+        """
+        payload = {'userStatus': {'cascadeModelConfigData': {'clientModelConfigs': [
+            {'quotaInfo': {'remainingFraction': .8}}]}}}
+        nomes = {}
+        for code in ('pt_BR', 'en'):
+            i18n.activate(code)
+            nomes[code] = p.parse_antigravity(payload)[0]['id']
+        self.assertEqual(nomes['pt_BR'], nomes['en'])
+        self.assertEqual(nomes['pt_BR'], 'model:1')
 
     def test_the_claude_scoped_window_names_the_model_as_argument(self):
         got = p.parse_claude({'limits': [
@@ -259,33 +284,85 @@ class MessageIdentifierTests(ProviderTestCase):
                              i18n._f(i18n._(DEFERRED), minutes=minutes), interval)
 
     def test_the_service_note_is_composed_from_identifiers(self):
+        """O trecho opcional é **dado + identificador**, nunca frase já montada.
+
+        Frase montada dentro do argumento fica no idioma da coleta: era assim que a nota da Meta
+        aparecia em inglês como "Plano: Pro … 125,5% de uso".
+        """
         payload = {'subs_tier_name': 'Muse Code Everyday Usage',
                    'subs_usage': {'window': {'used_percent': 140}}}
         args = p.meta_note_args(payload)
         note = p.meta_message(payload)
+        self.assertEqual([parte['id'] for parte in args['details']], [PLAN, NOTE_PERCENT])
+        self.assertEqual([parte['args'] for parte in args['details']],
+                         [{'plan': 'Muse Code Everyday Usage'}, {'percent': 140}])
+        for parte in args['details']:
+            self.assertEqual(parte['text'], p.note_part(parte['id'], parte['args'])['text'])
         self.assertEqual(note, i18n._f(i18n._(p.META_NOTE_ID), **args))
         self.assertIn(i18n._f(i18n._(PLAN), plan='Muse Code Everyday Usage'), note)
-        self.assertIn(i18n._f(i18n._(NOTE_PERCENT), percent='140'), note)
+        self.assertIn(i18n._f(i18n._(NOTE_PERCENT), percent=140), note)
         self.assertIn('Muse Code Everyday Usage', note)
         self.assertIn('140%', note)
 
     def test_the_note_without_optional_parts_is_the_bare_identifier(self):
         args = p.meta_note_args({})
-        self.assertEqual(args, {'details': ''})
-        self.assertEqual(p.meta_message({}), i18n._f(i18n._(p.META_NOTE_ID), details=''))
+        self.assertEqual(args, {'details': []})       # sem trecho, nenhum espaço sobra
+        self.assertEqual(p.meta_message({}), i18n._f(i18n._(p.META_NOTE_ID), details=[]))
 
-    def test_the_note_in_the_cache_follows_the_language_without_recollecting(self):
-        payload = {'subs_tier_name': 'Muse Code Everyday Usage', 'subs_usage': {}}
-        args = p.meta_note_args(payload)
-        record = p.service('meta', 'ok', message=p.meta_message(payload),
-                           message_id=p.META_NOTE_ID, message_args=args)
-        self.assertEqual(record['message_id'], p.META_NOTE_ID)
-        self.assertEqual(record['message_args'], args)
-        self.assertEqual(record['message'],
-                         i18n._f(i18n._(p.META_NOTE_ID), **args))
-        english()
-        self.assertEqual(i18n.record_text(record),
-                         i18n._f(i18n._(p.META_NOTE_ID), **args))
+    def test_the_same_record_reads_in_every_language_without_recollecting(self):
+        """Português → inglês → português sobre o **mesmo** registro, sem recolher nada.
+
+        O registro é montado uma vez, em pt_BR, com os quatro casos que o texto gravado no
+        argumento quebrava: janela fracionária (90 min), plano, percentual acima de 100% e
+        origem. Cada apresentação sai **inteira** e com os separadores do idioma — antes, a nota
+        coletada em português aparecia em inglês como "Plano: Pro … 125,5% de uso" e o rótulo
+        como "Window of 1,5 h".
+
+        A comparação com o texto já traduzido (`i18n._f(i18n._(p.META_NOTE_ID), **args)`) não
+        prova nada disto: os `args` eram o próprio erro, traduzidos na coleta.
+        """
+        i18n.activate('pt_BR')
+        payload = {'subs_tier_name': 'Muse Code Everyday Usage',
+                   'subs_usage': {'window': {'used_percent': 125.5, 'window_duration_mins': 90}}}
+        record = p.service(
+            'meta', 'ok', metrics=p.parse_meta(payload),
+            message_id=p.META_NOTE_ID, message_args=p.meta_note_args(payload),
+            source_id=i18n.N_('Muse Code · Meta subscription'))
+        # O cache guarda dado bruto: 1,5 h e 125,5 não estão escritos em lugar nenhum.
+        self.assertEqual(record['metrics'][0]['label_args'], {'hours': 1.5})
+        self.assertEqual([parte['args'] for parte in record['message_args']['details']],
+                         [{'plan': 'Muse Code Everyday Usage'}, {'percent': 125.5}])
+        self.assertEqual(record['source_id'], 'Muse Code · Meta subscription')
+        # Os argumentos guardam número, não texto: o único lugar com a frase já montada é o
+        # campo `text`/`label`/`message`/`source`, que é o recurso de quem não tem catálogo.
+        self.assertIsInstance(record['metrics'][0]['label_args']['hours'], float)
+        self.assertIsInstance(record['message_args']['details'][1]['args']['percent'], float)
+
+        # O mesmo registro, montado em português, responde inteiro nos três idiomas.
+
+        esperado = {
+            'pt_BR': ('Janela de 1,5 h',
+                      'Assinatura do aplicativo; não é a cobrança por uso da API. '
+                      'Plano: Muse Code Everyday Usage. A Meta relatou 125,5% de uso; '
+                      'a barra do applet vai até 100%.',
+                      'Muse Code · assinatura da Meta'),
+            'en': ('Window of 1.5 h',
+                   'Application subscription; not API usage billing. '
+                   'Plan: Muse Code Everyday Usage. Meta reported 125.5% usage; '
+                   'the applet bar stops at 100%.',
+                   'Muse Code · Meta subscription'),
+        }
+        for code in ('pt_BR', 'en', 'pt_BR'):        # ida e volta, sem recolher no meio
+            rotulo, nota, origem = esperado[code]
+            i18n.activate(code)
+            self.assertEqual(i18n.record_text(record['metrics'][0], 'label_id', 'label_args',
+                                              'label'), rotulo, code)
+            self.assertEqual(i18n.record_text(record), nota, code)
+            self.assertEqual(i18n.record_text(record, 'source_id', 'source_args', 'source'),
+                             origem, code)
+        # O texto do idioma da coleta continua no registro, para quem consome sem catálogo.
+        self.assertEqual(record['message'], esperado['pt_BR'][1])
+        self.assertEqual(record['source'], esperado['pt_BR'][2])
 
 
 class CachedTextFallbackTests(ProviderTestCase):
@@ -316,19 +393,63 @@ class CachedTextFallbackTests(ProviderTestCase):
         self.assertEqual(i18n.record_text(metric, 'label_id', 'label_args', 'label'),
                          'Outro balde · 168 h window')
 
-    def test_arguments_are_not_reformatted_by_the_presentation(self):
-        """Número já formatado na coleta fica no idioma em que foi formatado.
+    def test_the_raw_argument_is_written_by_the_language_in_force(self):
+        """``{hours}`` guarda o número, e quem o escreve é a apresentação.
 
-        É o motivo de o argumento ir cru: ``{hours}`` recebe o valor que a coleta escreveu, e quem
-        formata o percentual exibido é a apresentação (``formatPercent`` no painel, ``i18n.percent``
-        na janela) — não este caminho.
+        É o motivo de o argumento ir cru: gravado como texto, ``1,5`` atravessava a troca de
+        idioma e a janela em inglês dizia "Window of 1,5 h".
         """
         i18n.activate('pt_BR')
         metric = p.parse_meta({'subs_usage': {'window': {
             'used_percent': 3, 'window_duration_mins': 90}}})[0]
-        self.assertEqual(metric['label_args'], {'hours': '1,5'})
+        self.assertEqual(metric['label_args'], {'hours': 1.5})     # número cru no cache
+        self.assertEqual(metric['label'], 'Janela de 1,5 h')       # idioma da coleta
+        i18n.activate('en')
         self.assertEqual(i18n.record_text(metric, 'label_id', 'label_args', 'label'),
+                         'Window of 1.5 h')                          # idioma em vigor
+
+    def test_the_snapshot_on_disk_keeps_raw_data_and_reads_in_any_language(self):
+        """Ida e volta pelo JSON do snapshot, sem recolher: o que vai ao disco é dado.
+
+        É a garantia que o contrato pede — a mesma leitura responde nos dois idiomas —, e o
+        teste passa pelo arquivo (o número tem de voltar número, não texto formatado).
+        """
+        i18n.activate('pt_BR')
+        payload = {'subs_tier_name': 'Muse Code Everyday Usage',
+                   'subs_usage': {'window': {'used_percent': 125.5, 'window_duration_mins': 90}}}
+        servico = p.service(
+            'meta', 'ok', metrics=p.parse_meta(payload),
+            message_id=p.META_NOTE_ID, message_args=p.meta_note_args(payload),
+            source_id=i18n.N_('Muse Code · Meta subscription'), identity='meta:1')
+        snapshot = {'schema_version': 1, 'generated_at': '2026-09-26T12:00:00+00:00',
+                    'services': [servico]}
+        com_json = json.loads(json.dumps(snapshot, ensure_ascii=False))
+        lido = com_json['services'][0]
+        self.assertEqual(lido['metrics'][0]['label_args'], {'hours': 1.5})
+        self.assertEqual([parte['args'] for parte in lido['message_args']['details']],
+                         [{'plan': 'Muse Code Everyday Usage'}, {'percent': 125.5}])
+        for code, rotulo, percentual in (('pt_BR', 'Janela de 1,5 h', '125,5%'),
+                                         ('en', 'Window of 1.5 h', '125.5%')):
+            i18n.activate(code)
+            self.assertEqual(i18n.record_text(lido['metrics'][0], 'label_id', 'label_args',
+                                              'label'), rotulo, code)
+            self.assertIn(percentual, i18n.record_text(lido), code)
+
+    def test_a_snapshot_from_the_old_shape_keeps_showing_what_it_saved(self):
+        """Registro antigo, com o argumento já formatado, não é descartado nem reinterpretado.
+
+        O argumento que uma coleta anterior gravou como texto continua legível no idioma em que
+        foi escrito: é o recurso de quem não tem catálogo, e trocar a forma de gravar não
+        invalida o snapshot que já está no disco.
+        """
+        antigo = {'label_id': WINDOW_HOURS, 'label_args': {'hours': '1,5'},
+                  'label': 'Janela de 1,5 h'}
+        i18n.activate('pt_BR')
+        self.assertEqual(i18n.record_text(antigo, 'label_id', 'label_args', 'label'),
                          'Janela de 1,5 h')
+        i18n.activate('en')
+        self.assertEqual(i18n.record_text(antigo, 'label_id', 'label_args', 'label'),
+                         'Window of 1,5 h')        # o número gravado é o que a coleta escreveu
 
 
 class CacheAndHistoryTests(ProviderTestCase):
@@ -490,25 +611,33 @@ class NativeSourceTests(ProviderTestCase):
 class FormattingTests(ProviderTestCase):
     """O número sai da tabela do idioma, não de um formato fixo."""
 
-    def test_the_window_hours_follow_the_language(self):
-        english()
-        self.assertEqual(p.window_hours(300), '5')
-        self.assertEqual(p.window_hours(60), '1')
-        self.assertEqual(p.window_hours(90), '1.5')
-        i18n.activate('pt_BR')
-        self.assertEqual(p.window_hours(300), '5')
-        self.assertEqual(p.window_hours(90), '1,5')
+    def test_the_window_hours_are_raw_and_the_presentation_writes_them(self):
+        """A coleta não escreve número: ``window_hours`` devolve horas cruas.
+
+        Quem as escreve é ``i18n.arg_text``, com o separador do idioma em vigor — inteiro sem
+        casas decimais, fracionário com uma.
+        """
+        self.assertEqual(p.window_hours(300), 5)
+        self.assertEqual(p.window_hours(60), 1)
+        self.assertEqual(p.window_hours(90), 1.5)
+        for code, esperado in (('en', '1.5'), ('pt_BR', '1,5')):
+            i18n.activate(code)
+            self.assertEqual(i18n.arg_text(p.window_hours(90)), esperado, code)
+            self.assertEqual(i18n.arg_text(p.window_hours(300)), '5', code)
 
     def test_the_label_of_a_fractional_window_uses_the_language_separator(self):
         payload = {'subs_usage': {'window': {'used_percent': 3, 'window_duration_mins': 90}}}
-        english()
-        self.assertEqual(p.parse_meta(payload)[0]['label'],
-                         i18n._f(i18n._(WINDOW_HOURS), hours='1.5'))
         i18n.activate('pt_BR')
-        self.assertEqual(p.parse_meta(payload)[0]['label'],
-                         i18n._f(i18n._(WINDOW_HOURS), hours='1,5'))
-        self.assertEqual(i18n.record_text(p.parse_meta(payload)[0], 'label_id', 'label_args',
-                                          'label'), 'Janela de 1,5 h')
+        em_portugues = p.parse_meta(payload)[0]
+        self.assertEqual(em_portugues['label_args'], {'hours': 1.5})
+        self.assertEqual(em_portugues['label'],
+                         i18n._f(i18n._(WINDOW_HOURS), hours=1.5))
+        self.assertEqual(i18n.record_text(em_portugues, 'label_id', 'label_args', 'label'),
+                         'Janela de 1,5 h')
+        i18n.activate('en')
+        # O **mesmo** registro, em inglês: separador decimal do idioma em vigor.
+        self.assertEqual(i18n.record_text(em_portugues, 'label_id', 'label_args', 'label'),
+                         'Window of 1.5 h')
 
     def test_the_reported_percentage_of_the_note_is_not_a_fixed_format(self):
         for code, expected in (('pt_BR', '100,5'), ('en', '100.5')):

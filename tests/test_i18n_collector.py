@@ -243,6 +243,12 @@ class CollectionNoticeTests(unittest.TestCase):
             resultado = c.collect(force=True)
         popen.assert_not_called()                   # nenhum provedor foi consultado
         self.assertEqual(resultado['notice'], i18n._(SKIPPED))
+        self.assertEqual(resultado['notice_id'], SKIPPED)      # o texto vai com identificador
+        self.assertEqual(resultado['notice_args'], {})
+        i18n.activate('en')
+        self.addCleanup(i18n.activate, 'pt_BR')
+        self.assertEqual(i18n.record_text(resultado, 'notice_id', 'notice_args', 'notice'),
+                         SKIPPED, 'o aviso de uma coleta feita em português sai em inglês')
         self.assertEqual(resultado['generated_at'], '2026-09-26T10:00:00Z')
         codex = resultado['services'][0]
         self.assertEqual(codex['read_at'], antigo['read_at'])
@@ -378,10 +384,21 @@ class DemoPayloadTests(unittest.TestCase):
         i18n.activate('en')
         self.assertEqual(self._labels(aberto['metrics']), ['Rolling window', 'Week', 'Month'])
 
-    def test_demo_source_is_text_in_the_language_of_the_run(self):
+    def test_demo_source_is_an_identifier_with_the_text_of_the_run(self):
+        """Origem: identificador no registro, texto do idioma da coleta ao lado.
+
+        É o que faz a janela em inglês não mostrar "Simulação — sem dados reais" numa leitura
+        feita em português.
+        """
         simulado = {s['id']: s for s in c.demo()['services']}
         for item in simulado.values():
+            self.assertEqual(item['source_id'], 'Simulation — no real data')
+            self.assertEqual(item['source_args'], {})
             self.assertEqual(item['source'], i18n._('Simulation — no real data'))
+            en = i18n._t('Simulation — no real data', 'en')
+            self.assertEqual(
+                i18n._t(item['source_id'], 'en'), en,
+                'a origem tem de responder pelo identificador em qualquer idioma')
 
 
 class CredentialMessageTests(unittest.TestCase):
