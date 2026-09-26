@@ -19,6 +19,7 @@ abre janela de verdade é ``tests/smoke_gtk.py``, com sessão gráfica.
 """
 import contextlib
 import sys
+import tempfile
 import types
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -205,6 +206,19 @@ class LanguageTestCase(unittest.TestCase):
     def setUp(self):
         self._language = i18n.language()
         i18n.activate('pt_BR')
+        # A janela de credenciais grava `config.json` de verdade quando o caminho é exercitado
+        # (`_on_save_team` em test_path_and_team_messages_are_translated salvava o team_id de
+        # mentira por cima da configuração de quem roda a suíte, apagando `credentials_path` e
+        # `token_files`). O diretório de configuração vai para um temporário, e a conferência
+        # abaixo falha se ele escapar de lá.
+        self._config = tempfile.TemporaryDirectory(prefix='ai-usage-config-')
+        self.addCleanup(self._config.cleanup)
+        patcher = patch.object(credentials_window, 'config_paths',
+                               return_value=Path(self._config.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.assertTrue(str(credentials_window.config_paths()).startswith(self._config.name),
+                        'a janela escreveria fora do temporário')
 
     def tearDown(self):
         i18n.activate(self._language)
