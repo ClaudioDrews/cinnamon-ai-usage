@@ -486,7 +486,7 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._proc) lines.push(_('Updating…'));
         if (this._error) lines.push(this._error);
         if (this._notice()) lines.push(this._notice());
-        const comFalha = this._byStatus('error');
+        const comFalha = this._failedServices();
         if (comFalha.length) lines.push(_f(_('Reading failed: {services}'), {services: this._list(comFalha)}));
         const antigas = this._agedServices().map(s => s.label || s.id);
         if (antigas.length) lines.push(_f(_('Stale reading: {services}'), {services: this._list(antigas)}));
@@ -507,10 +507,11 @@ class AIUsageApplet extends Applet.IconApplet {
         return aviso ? aviso : null;
     }
 
-    // Indicador de erro separado de cota: nomeia quem falhou, sem tocar na cor da cota.
-    _byStatus(...statuses) {
+    // Uma falha com leitura preservada também é erro; intervalo vencido não é.
+    _failedServices() {
         const services = (this._snapshot && this._snapshot.services) || [];
-        return services.filter(s => statuses.includes(s.status)).map(s => s.label || s.id);
+        return services.filter(s => s.status === 'error' ||
+            (s.status === 'stale' && s.stale_reason === 'failure')).map(s => s.label || s.id);
     }
 
     _list(names, limit = 3) {
@@ -548,7 +549,7 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._proc) this._note(_('Updating… Reopen to see the new reading.'));
         if (this._notice()) this._note(this._notice());
         if (this._error) this._note(this._error + ' ' + _('Last values preserved.'));
-        const comFalha = this._byStatus('error');
+        const comFalha = this._failedServices();
         if (comFalha.length) this._note(_f(_('Reading failed: {services}'), {services: this._list(comFalha)}),
                                         'ai-usage-menu-error');
         const antigas = this._agedServices().map(s => s.label || s.id);

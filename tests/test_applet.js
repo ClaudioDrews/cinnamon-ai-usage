@@ -308,6 +308,43 @@ function instance(preference, env) {
 const ptSession = {LANG: 'pt_BR.UTF-8'};
 const enSession = {LANG: 'en_US.UTF-8'};
 
+// Uma falha com cache preservado continua sendo falha no menu e no tooltip.
+// Apenas vencer o intervalo não deve produzir o mesmo alerta.
+for (const [lang, env, failureText, staleText] of [
+    ['en', ptSession, 'Reading failed: Codex, DeepSeek', 'Stale reading: DeepSeek, Meta'],
+    ['pt_BR', enSession, 'Falha na leitura: Codex, DeepSeek', 'Leitura antiga: DeepSeek, Meta'],
+]) {
+    const panel = instance(lang, env);
+    panel._snapshot.services = [
+        {id: 'codex', label: 'Codex', status: 'error', metrics: []},
+        {id: 'deepseek', label: 'DeepSeek', status: 'stale', stale_reason: 'failure',
+         metrics: [{kind: 'balance', value: 10, currency: 'USD'}]},
+        {id: 'meta', label: 'Meta', status: 'stale', stale_reason: 'pending',
+         metrics: [{kind: 'quota', used_percent: 99}]},
+    ];
+    const snapshotBefore = JSON.stringify(panel._snapshot);
+    const queriesBefore = subprocesses.length;
+    panel._renderMenu();
+    panel._refreshIcon();
+    const failure = panel.menu.items.find(i => i.label && i.label.text === failureText);
+    assert(failure, `${lang}: falha com leitura preservada precisa aparecer no menu`);
+    assert(failure.label.classes.includes('ai-usage-menu-error'));
+    assert(panel.menu.items.some(i => i.label && i.label.text === staleText));
+    assert(panel.tooltip.split('\n').includes(failureText));
+    assert(panel.tooltip.split('\n').includes(staleText));
+    assert.equal(panel._applet_icon.style, null, 'leitura antiga não colore a cota');
+    assert.equal(JSON.stringify(panel._snapshot), snapshotBefore, 'preserva as métricas');
+    assert.equal(subprocesses.length, queriesBefore, 'apresentação não dispara coleta');
+
+    panel._snapshot.services = [panel._snapshot.services[2]];
+    panel._renderMenu();
+    panel._refreshIcon();
+    assert(!panel.menu.items.some(i => i.label &&
+        (i.label.classes || []).includes('ai-usage-menu-error')));
+    assert(!panel.tooltip.includes(failureText.split(':')[0]),
+        `${lang}: intervalo vencido sozinho não é falha`);
+}
+
 const inglesSobSessaoPt = instance('en', ptSession);
 assert.equal(inglesSobSessaoPt._language, 'en');
 assert.equal(context.text('Update'), 'Update', 'preferência em inglês sobre sessão pt_BR');
