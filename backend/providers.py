@@ -18,6 +18,7 @@ from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHand
 from urllib.error import HTTPError, URLError
 
 import credentials
+import i18n
 
 SERVICES = {
     "codex": "Codex", "claude": "Claude Code", "antigravity": "Antigravity",
@@ -43,13 +44,24 @@ META_MIN_INTERVAL = 900
 # Texto de uma falha sem mensagem própria. O vocabulário do estado (`stale_reason`) e o texto
 # mostrado à pessoa vêm daqui, para a leitura reaproveitada de uma tentativa falha não aparecer
 # como "atualização pendente".
-QUOTA_FAILURE_MESSAGE = "A atualização mais recente deste serviço falhou; a leitura anterior é mantida."
+QUOTA_FAILURE_MESSAGE = i18n.N_(
+    "Failed to query the service; the previous reading is kept.")
 
 
 class Unavailable(Exception):
-    def __init__(self, message, status="unavailable"):
+    """Serviço indisponível.
+
+    ``message`` é o **msgid** em inglês e ``args`` os valores brutos que preenchem os
+    marcadores: quem transforma isso em texto é a emissão (``collect_provider``), que
+    grava o texto no idioma da coleta e o msgid ao lado — o texto traduzido que fica no
+    cache não pode ser a única forma de uma frase existir (docs/i18n.md).
+    """
+    def __init__(self, message, status="unavailable", args=None):
         super().__init__(message)
         self.status = status
+        # ``message_args`` e não ``args``: ``Exception.args`` é do próprio Python e
+        # sobrescrevê-lo com um dict confunde quem lê o erro e as ferramentas.
+        self.message_args = dict(args or {})
 
 
 def number(value):
@@ -87,18 +99,44 @@ def text(value, default="", limit=100):
     return re.sub(r"[\x00-\x1f\x7f]", " ", str(value or default))[:limit]
 
 
-def metric(id_, label, kind, *, percent=None, value=None, currency=None, window=None, reset=None):
+def metric(id_, label="", kind="", *, label_id=None, label_args=None,
+           percent=None, value=None, currency=None, window=None, reset=None):
+    """Métrica de um serviço.
+
+    ``label_id`` é o msgid do rótulo e ``label_args`` os valores dos marcadores. Passando
+    o msgid, o rótulo sai traduzido no idioma da coleta **e** o identificador segue junto
+    no registro: os rótulos ficam no cache, e a interface precisa poder reescrevê-los no
+    idioma em vigor sem recolher nada (docs/i18n.md).
+    """
     p = number(percent)
-    return {"id": id_, "label": text(label), "kind": kind,
-            "used_percent": max(0, min(100, p)) if p is not None else None,
-            "value": number(value), "currency": currency,
-            "window_seconds": window, "reset_at": stamp(reset) if reset else None}
+    result = {"id": id_, "label": text(label), "kind": kind,
+              "used_percent": max(0, min(100, p)) if p is not None else None,
+              "value": number(value), "currency": currency,
+              "window_seconds": window, "reset_at": stamp(reset) if reset else None}
+    if label_id is not None:
+        args = dict(label_args or {})
+        result["label"] = text(i18n._f(i18n._(label_id), **args))
+        result["label_id"] = label_id
+        result["label_args"] = args
+    return result
 
 
-def service(id_, status="ok", message="", source="", metrics=None, identity=None):
+def service(id_, status="ok", message="", source="", metrics=None, identity=None, *,
+            message_id=None, message_args=None):
+    """Serviço do contrato.
+
+    Com ``message_id`` (o msgid em inglês) e ``message_args``, o ``message`` é o texto no
+    idioma da coleta e os dois campos são gravados ao lado — é o que permite a leitura
+    reaproveitada do cache aparecer no idioma em vigor, seja ele qual for.
+    """
     result = {"id": id_, "label": SERVICES[id_], "status": status, "message": message,
               "source": source, "read_at": stamp() if status == "ok" else None,
               "last_used_at": None, "recency_basis": "unknown", "metrics": metrics or []}
+    if message_id is not None:
+        args = dict(message_args or {})
+        result["message"] = text(i18n._f(i18n._(message_id), **args), limit=200)
+        result["message_id"] = message_id
+        result["message_args"] = args
     if identity:
         # Private cache baseline discriminator; the identifier itself is never persisted.
         result["_identity"] = hashlib.sha256(str(identity).encode()).hexdigest()
@@ -531,13 +569,19 @@ def quota_reuse(name, interval, identity):
     age = quota_age(data.get("attempted_at") or read_at)
     if age is None or age >= interval:
         return None
-    falha = None
+    falha, falha_id, falha_args = None, None, {}
     if data.get("attempt_status") == "failure":
         # O desfecho da última tentativa sobrevive à leitura reaproveitada: sem ele, o coletor
         # classificava a leitura preservada como "atualização pendente" e a falha desaparecia
-        # da tela sem o serviço ter voltado.
-        falha = text(data.get("attempt_message"), QUOTA_FAILURE_MESSAGE, 200)
-    return {"read_at": read_at, "metrics": metrics, "failure": falha}
+        # da tela sem o serviço ter voltado. O texto sai traduzido no idioma da coleta e o
+        # msgid vai junto, porque quem mostrar isso amanhã pode estar em outro idioma.
+        falha = text(data.get("attempt_message"), i18n._(QUOTA_FAILURE_MESSAGE), 200)
+        falha_id = data.get("attempt_message_id") or None
+        falha_args = data.get("attempt_message_args")
+        if not isinstance(falha_args, dict):
+            falha_args = {}
+    return {"read_at": read_at, "metrics": metrics, "failure": falha,
+            "failure_id": falha_id, "failure_args": falha_args}
 
 
 def quota_read_cache(name, interval, identity):
@@ -555,7 +599,8 @@ def quota_attempt_recent(name, interval, identity):
     return age is not None and age < interval
 
 
-def _write_quota_cache(name, identity, read_at, metrics, attempted_at, attempt_status, attempt_message):
+def _write_quota_cache(name, identity, read_at, metrics, attempted_at, attempt_status,
+                       attempt_message, attempt_message_id=None, attempt_message_args=None):
     path = quota_cache_path(name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -564,7 +609,9 @@ def _write_quota_cache(name, identity, read_at, metrics, attempted_at, attempt_s
         with os.fdopen(fd, "w") as f:
             json.dump({"read_at": read_at, "identity": identity, "metrics": metrics,
                        "attempted_at": attempted_at, "attempt_status": attempt_status,
-                       "attempt_message": attempt_message}, f)
+                       "attempt_message": attempt_message,
+                       "attempt_message_id": attempt_message_id,
+                       "attempt_message_args": attempt_message_args}, f)
             f.flush(); os.fsync(f.fileno())
         os.chmod(temp, 0o600)
         os.replace(temp, path)
@@ -585,28 +632,43 @@ def quota_mark_attempt(name, identity):
     _write_quota_cache(name, identity, read_at, metrics, stamp(), "pending", None)
 
 
-def quota_mark_failure(name, identity, message):
+def quota_mark_failure(name, identity, message, message_args=None):
     """Registra o desfecho malsucedido da tentativa, sem apagar a última leitura boa.
 
     Sem este registro, a etapa seguinte reaproveitava a leitura anterior como ``ok`` e o
     coletor a reclassificava como leitura vencida — a falha saía da tela sem o serviço ter
-    voltado a responder.
+    voltado a responder. ``message`` é o msgid: o texto é gravado traduzido, e o
+    identificador fica ao lado para a leitura reaproveitada poder reaparecer em outro idioma.
     """
     data = quota_cache(name, identity) or {}
     metrics = data.get("metrics") if isinstance(data.get("metrics"), list) else []
     read_at = data.get("read_at") if isinstance(data.get("read_at"), str) else None
+    ident = text(message, QUOTA_FAILURE_MESSAGE, 200) or QUOTA_FAILURE_MESSAGE
+    args = dict(message_args or {})
     _write_quota_cache(name, identity, read_at, metrics, stamp(), "failure",
-                       text(message, QUOTA_FAILURE_MESSAGE, 200))
+                       text(i18n._f(i18n._(ident), **args), limit=200),
+                       attempt_message_id=ident, attempt_message_args=args)
 
 
-def quota_reused_service(name, cached, source, identity, message):
-    """Serviço a partir da leitura reaproveitada, com o estado real da última tentativa."""
-    result = service(name, source=source, metrics=cached["metrics"], identity=identity,
-                     message=message)
+def quota_reused_service(name, cached, source, identity, message=None, message_id=None):
+    """Serviço a partir da leitura reaproveitada, com o estado real da última tentativa.
+
+    O texto veio do cache, então vai com o identificador: a interface reescreve no idioma em
+    vigor em vez de repetir a frase no idioma em que a leitura foi feita.
+    """
+    if cached.get("failure"):
+        result = service(name, "stale", source=source, metrics=cached["metrics"],
+                         identity=identity, message=cached["failure"],
+                         message_id=cached.get("failure_id") or None,
+                         message_args=cached.get("failure_args") or None)
+        result["stale_reason"] = "failure"
+    else:
+        result = service(name, source=source, metrics=cached["metrics"], identity=identity,
+                         message_id=message_id)
+        if message_id is None:
+            result["message"] = text(message or "", limit=200)
     # Horário real da leitura: frescor não se inventa.
     result["read_at"] = cached["read_at"]
-    if cached["failure"]:
-        result.update(status="stale", stale_reason="failure", message=cached["failure"])
     return result
 
 
@@ -691,8 +753,8 @@ def meta(config=None):
     if cached:
         return quota_reused_service(
             "meta", cached, source, identity,
-            "Leitura reaproveitada; a assinatura é consultada respeitando um intervalo mínimo "
-            "entre chamadas.")
+            message_id=i18n.N_("Reading reused; the subscription is queried respecting a "
+                               "minimum interval between calls."))
     if quota_attempt_recent("meta", interval, identity):
         # A tentativa anterior (mesmo sem leitura boa) ainda está dentro do intervalo: não
         # repetir a chamada é o ponto do intervalo mínimo.
@@ -701,7 +763,8 @@ def meta(config=None):
     try:
         payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
     except Unavailable as error:
-        quota_mark_failure("meta", identity, str(error))
+        quota_mark_failure("meta", identity, str(error),
+                           getattr(error, "message_args", None))
         raise
     read_at = stamp()
     metrics = parse_meta(payload)
@@ -710,7 +773,8 @@ def meta(config=None):
         # uma leitura boa que reaparece como "atualização pendente" na rodada seguinte.
         erro = Unavailable("A Meta respondeu sem os percentuais da assinatura; rode `diag meta` "
                            "e relate o resultado no GitHub para ajustar o conector.", "error")
-        quota_mark_failure("meta", identity, str(erro))
+        quota_mark_failure("meta", identity, str(erro),
+                           getattr(erro, "message_args", None))
         raise erro
     meta_write_cache(identity, read_at, metrics)
     return service("meta", source=source, metrics=metrics, identity=identity,
@@ -815,8 +879,8 @@ def claude(config=None):
     if cached:
         return quota_reused_service(
             "claude", cached, source, identity,
-            "Leitura reaproveitada; a rota é consultada respeitando um intervalo mínimo entre "
-            "chamadas.")
+            message_id=i18n.N_("Reading reused; the route is queried respecting a minimum "
+                               "interval between calls."))
     if quota_attempt_recent("claude", interval, identity):
         raise quota_deferred(interval)
     quota_mark_attempt("claude", identity)
@@ -828,7 +892,8 @@ def claude(config=None):
             raise Unavailable("Resposta sem as janelas esperadas; rode `diag claude` e relate o "
                               "resultado no GitHub para ajustar o conector.")
     except Unavailable as error:
-        quota_mark_failure("claude", identity, str(error))
+        quota_mark_failure("claude", identity, str(error),
+                           getattr(error, "message_args", None))
         raise
     quota_write_cache("claude", identity, read_at, metrics)
     return service("claude", source=source, metrics=metrics, identity=identity,
@@ -970,6 +1035,9 @@ def collect_provider(id_, config=None):
             raise Unavailable("Fonte não retornou métricas de uso reconhecidas.")
         return result
     except Unavailable as e:
-        return service(id_, e.status, str(e))
+        # O identificador é o próprio msgid: um caminho só, para as 23 origens de erro
+        # herdarem a tradução correta em vez de cada uma montar o texto por conta própria.
+        return service(id_, e.status, message_id=str(e), message_args=e.message_args)
     except Exception:
-        return service(id_, "error", "Falha ao ler dados do serviço; tente atualizar.")
+        return service(id_, "error", message_id=i18n.N_(
+            "Failed to read the service data; try refreshing."))

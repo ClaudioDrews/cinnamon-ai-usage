@@ -17,7 +17,7 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 # '--from-code=UTF-8' porque o texto tem acento, travessão e reticências.
 xgettext --from-code=UTF-8 --language=JavaScript --keyword=_ \
     -o "$WORK/applet.pot" applet/applet.js
-xgettext --from-code=UTF-8 --language=Python --keyword=_ --keyword=_t --keyword=_n:1,2 \
+xgettext --from-code=UTF-8 --language=Python --keyword=_ --keyword=_t --keyword=_n:1,2 --keyword=N_ \
     -o "$WORK/backend.pot" backend/*.py
 # Sem --location: o arquivo que o gerador produz fica em diretório temporário e a
 # referência levaria o caminho desta máquina para dentro do catálogo versionado.

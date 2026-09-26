@@ -9,7 +9,7 @@ msgstr ""
 "#-#-#-#-#  applet.pot (PACKAGE VERSION)  #-#-#-#-#\n"
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:49-0300\n"
+"POT-Creation-Date: 2026-09-26 15:11-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,7 +20,7 @@ msgstr ""
 "#-#-#-#-#  backend.pot (PACKAGE VERSION)  #-#-#-#-#\n"
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:49-0300\n"
+"POT-Creation-Date: 2026-09-26 15:11-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -32,7 +32,7 @@ msgstr ""
 "#-#-#-#-#  xlet.pot (PACKAGE VERSION)  #-#-#-#-#\n"
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:49-0300\n"
+"POT-Creation-Date: 2026-09-26 15:11-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -41,199 +41,251 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: applet/applet.js:197
+#: applet/applet.js:324
 msgid "Could not start the collector."
 msgstr ""
 
-#: applet/applet.js:231
+#: applet/applet.js:358
 msgid "Collection timed out."
 msgstr ""
 
-#: applet/applet.js:231
+#: applet/applet.js:358
 msgid "Could not read the collector output."
 msgstr ""
 
-#: applet/applet.js:285
+#: applet/applet.js:412
 msgid "AI usage"
 msgstr ""
 
-#: applet/applet.js:292 applet/applet.js:413
+#: applet/applet.js:419 applet/applet.js:547
 msgid "{label}: {percent} used"
 msgstr ""
 
-#: applet/applet.js:294 applet/applet.js:430
+#: applet/applet.js:422 applet/applet.js:564
 msgid "{label}: {money}"
 msgstr ""
 
-#: applet/applet.js:297
+#: applet/applet.js:425
 msgid "Not configured"
 msgstr ""
 
-#: applet/applet.js:297
+#: applet/applet.js:425
 msgid "Unavailable"
 msgstr ""
 
-#: applet/applet.js:298
+#: applet/applet.js:426
 msgid "Reading failed"
 msgstr ""
 
-#: applet/applet.js:298
+#: applet/applet.js:426
 msgid "No reading"
 msgstr ""
 
-#: applet/applet.js:300
+#: applet/applet.js:428
 msgid " (stale reading)"
 msgstr ""
 
-#: applet/applet.js:303
+#: applet/applet.js:431
 msgid "Waiting for the first reading…"
 msgstr ""
 
-#: applet/applet.js:304
+#: applet/applet.js:432
 msgid "Critical quota"
 msgstr ""
 
-#: applet/applet.js:304
+#: applet/applet.js:432
 msgid "Attention"
 msgstr ""
 
-#: applet/applet.js:307
+#: applet/applet.js:435
 msgid "Last collection: {time}"
 msgstr ""
 
-#: applet/applet.js:309 applet/applet.js:369
+#: applet/applet.js:437 applet/applet.js:497
 msgid "Automatic collection paused"
 msgstr ""
 
-#: applet/applet.js:310
+#: applet/applet.js:438
 msgid "Updating…"
 msgstr ""
 
-#: applet/applet.js:314 applet/applet.js:374
+#: applet/applet.js:442 applet/applet.js:502
 msgid "Reading failed: {services}"
 msgstr ""
 
-#: applet/applet.js:316 applet/applet.js:377
+#: applet/applet.js:444 applet/applet.js:505
 msgid "Stale reading: {services}"
 msgstr ""
 
-#: applet/applet.js:317
+#: applet/applet.js:445
 msgid "Click: recent · double-click: all"
 msgstr ""
 
-#: applet/applet.js:341
+#: applet/applet.js:469
 msgid "and {count} more"
 msgstr ""
 
-#: applet/applet.js:368
+#: applet/applet.js:496
 msgid "Five most recent · estimated usage"
 msgstr ""
 
-#: applet/applet.js:370
+#: applet/applet.js:498
 msgid "Updating… Reopen to see the new reading."
 msgstr ""
 
-#: applet/applet.js:372
+#: applet/applet.js:500
 msgid "Last values preserved."
 msgstr ""
 
-#: applet/applet.js:379
+#: applet/applet.js:507
 msgid "No reading yet; use Update or See all."
 msgstr ""
 
-#: applet/applet.js:383
+#: applet/applet.js:511
 msgid "{count} service(s) without a reading; see Credentials…"
 msgstr ""
 
-#: applet/applet.js:385
+#: applet/applet.js:513
 msgid "See all services…"
 msgstr ""
 
-#: applet/applet.js:386
+#: applet/applet.js:514
 msgid "Update"
 msgstr ""
 
-#: applet/applet.js:387
+#: applet/applet.js:515
 msgid "Credentials…"
 msgstr ""
 
-#: applet/applet.js:388
+#: applet/applet.js:516
 msgid "Settings…"
 msgstr ""
 
-#: applet/applet.js:397
+#: applet/applet.js:525
 msgid "Could not run the action."
 msgstr ""
 
-#: applet/applet.js:435
+#: applet/applet.js:569
 msgid "Stale reading — see details"
 msgstr ""
 
-#: applet/applet.js:435
+#: applet/applet.js:569
 msgid "No current reading"
 msgstr ""
 
-#: applet/applet.js:437
+#: applet/applet.js:571
 msgid "No observed use since installation"
 msgstr ""
 
-#: applet/applet.js:445
+#: applet/applet.js:579
 msgid "Could not open the window."
 msgstr ""
 
-#: applet/applet.js:450
+#: applet/applet.js:584
 msgid "Could not open the credentials."
 msgstr ""
 
-#: backend/i18n.py:203 backend/i18n.py:221
+#: backend/collector.py:24
+msgid "Last reading available; refresh pending."
+msgstr ""
+
+#: backend/collector.py:40
+msgid "No reading available; refresh to query."
+msgstr ""
+
+#: backend/collector.py:150
+msgid ""
+"Previous reading data: the refresh interval has passed and this service has "
+"not been read again yet."
+msgstr ""
+
+#: backend/collector.py:152
+msgid "Previous reading data: the most recent refresh of this service failed."
+msgstr ""
+
+#: backend/collector.py:183
+msgid ""
+"Refresh skipped: a collection is already running; the values are the last "
+"reading."
+msgstr ""
+
+#: backend/collector.py:317
+msgid "Failed to read the configuration or write the local cache."
+msgstr ""
+
+#: backend/i18n.py:244 backend/i18n.py:262
 msgid "unavailable"
 msgstr ""
 
-#: backend/i18n.py:214
+#: backend/i18n.py:255
 msgid "percentage unavailable"
 msgstr ""
 
-#: backend/i18n.py:245 backend/i18n.py:257
+#: backend/i18n.py:286 backend/i18n.py:298
 msgid "unknown time"
 msgstr ""
 
-#: backend/i18n.py:266
+#: backend/i18n.py:307
 msgid "unknown duration"
 msgstr ""
 
-#: backend/i18n.py:268
+#: backend/i18n.py:309
 msgid "under 2 minutes"
 msgstr ""
 
-#: backend/i18n.py:271
+#: backend/i18n.py:312
 #, python-brace-format
 msgid "{minutes} min"
 msgstr ""
 
-#: backend/i18n.py:276
+#: backend/i18n.py:317
 #, python-brace-format
 msgid "{hours} h {minutes} min"
 msgstr ""
 
-#: backend/i18n.py:277
+#: backend/i18n.py:318
 #, python-brace-format
 msgid "{hours} h"
 msgstr ""
 
-#: backend/i18n.py:279
+#: backend/i18n.py:320
 #, python-brace-format
 msgid "{days} day"
 msgid_plural "{days} days"
 msgstr[0] ""
 msgstr[1] ""
 
-#: backend/i18n.py:289
+#: backend/i18n.py:330
 msgid "now"
 msgstr ""
 
-#: backend/i18n.py:290
+#: backend/i18n.py:331
 #, python-brace-format
 msgid "{duration} ago"
+msgstr ""
+
+#: backend/providers.py:48
+msgid "Failed to query the service; the previous reading is kept."
+msgstr ""
+
+#: backend/providers.py:756
+msgid ""
+"Reading reused; the subscription is queried respecting a minimum interval "
+"between calls."
+msgstr ""
+
+#: backend/providers.py:882
+msgid ""
+"Reading reused; the route is queried respecting a minimum interval between "
+"calls."
+msgstr ""
+
+#: backend/providers.py:1043
+msgid "Failed to read the service data; try refreshing."
+msgstr ""
+
+#: backend/window.py:704
+msgid "Metric"
 msgstr ""
 
 msgid "Recent usage of the configured AI services, right in the Cinnamon panel"

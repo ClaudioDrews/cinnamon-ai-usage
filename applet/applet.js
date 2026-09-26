@@ -3,24 +3,61 @@ const Applet = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
 const Settings = imports.ui.settings;
 const Mainloop = imports.mainloop;
-const Gettext = imports.gettext;
 const St = imports.gi.St;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
+const ByteArray = imports.byteArray;
 const Clutter = imports.gi.Clutter;
 
 const WARNING_COLOR = '#e5a50a';
 const CRITICAL_COLOR = '#e01b24';
 
 // Texto visível nasce aqui com msgid em inglês; a tradução vive em
-// locale/<idioma>/LC_MESSAGES/ai-usage@claudio.drews.mo, e o shell já ligou o
-// domínio do xlet a ~/.local/share/locale (appletManager.js). Sem catálogo sai o
-// próprio msgid — inglês, nunca um idioma que catálogo nenhum cobre.
+// locale/<idioma>/LC_MESSAGES/ai-usage@claudio.drews.mo.
+//
+// O catálogo é lido pelo próprio applet, e não por Gettext.dgettext: o processo do shell
+// é compartilhado e trocar o locale dele para atender a preferência de uma instância
+// mexeria no resto do painel. Aqui, cada idioma tem a sua tabela, e o idioma resolvido
+// governa texto e formatação do painel — que é o que a preferência promete.
 let _uuid = null;
-function _(text) { return _uuid ? Gettext.dgettext(_uuid, text) : text; }
+let _appletPath = null;
+let _language = 'en';
+const _catalogs = {};
+
+function _(text) {
+    const table = catalogFor(_language);
+    return (table && typeof table.singles[text] === 'string') ? table.singles[text] : text;
+}
+
+// Plural do catálogo: o .mo guarda as formas separadas por NUL. A regra é a de duas formas
+// (1 -> primeira, resto -> segunda), que é a dos idiomas que este applet embarca; idioma
+// com outra regra precisa da sua própria, e o teste do catálogo avisa se aparecer.
+function _n(singular, plural, n) {
+    const table = catalogFor(_language);
+    const forms = table && table.plurals[singular];
+    if (!forms || !forms.length) return Number(n) === 1 ? singular : plural;
+    return Number(n) === 1 ? forms[0] : (forms[1] !== undefined ? forms[1] : forms[0]);
+}
+
 function _f(text, values) {
     return text.replace(/\{(\w+)\}/g, (whole, name) =>
-        Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : whole);
+        Object.prototype.hasOwnProperty.call(values || {}, name) ? String(values[name]) : whole);
+}
+
+// Texto que veio do cache: o identificador (msgid) manda, e o texto gravado é só o recurso
+// de quem não tem catálogo. Uma leitura de ontem aparece no idioma de hoje; em inglês, o
+// identificador já é a frase.
+function _recordText(record, idField, argsField, textField) {
+    if (!record) return '';
+    const ident = record[idField];
+    if (typeof ident === 'string' && ident) {
+        const table = catalogFor(_language);
+        if (!table) return _f(ident, record[argsField]);
+        const translated = table.singles[ident];
+        if (typeof translated === 'string') return _f(translated, record[argsField]);
+    }
+    const text = record[textField];
+    return typeof text === 'string' ? text : '';
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -31,12 +68,93 @@ function dataHome() {
         GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share']);
 }
 
+// Onde o catálogo pode estar, na ordem em que o Cinnamon procura: a cópia que o
+// instalador põe junto do applet (fonte e instalado são a mesma pasta), depois o
+// diretório de dados do usuário — que é o que o shell liga ao domínio do xlet — e por
+// fim o sistema.
+function catalogPaths(code) {
+    if (!_uuid || !_appletPath) return [];
+    const relative = ['LC_MESSAGES', _uuid + '.mo'];
+    return [
+        GLib.build_filenamev([_appletPath, 'locale', code].concat(relative)),
+        GLib.build_filenamev([_appletPath, '..', 'locale', code].concat(relative)),
+        GLib.build_filenamev([dataHome(), 'locale', code].concat(relative)),
+        GLib.build_filenamev(['/usr/share/locale', code].concat(relative)),
+    ];
+}
+
+// .mo em memória: cabeçalho (magic, contagem, tabelas) e as strings separadas por NUL.
+// É o mesmo formato que o gettext do Python e o shell leem; nenhum arquivo intermediário
+// precisa existir só para o painel.
+//
+// As strings são separadas nos bytes antes de decodificar: `ByteArray.toString` para no
+// primeiro NUL, e uma entrada de plural é exatamente "singular\0plural" — decodificar a
+// fatia inteira de uma vez devolveria só o singular, sem erro nenhum.
+function parseMo(path) {
+    try {
+        const [ok, bytes] = GLib.file_get_contents(path);
+        if (!ok || !bytes || bytes.length < 28) return null;
+        return parseMoBytes(bytes, new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    } catch (error) {
+        // Arquivo ausente ou ilegível: em GJS `file_get_contents` lança. Sem catálogo o
+        // idioma não vale e a interface sai em inglês, que é o combinado.
+        return null;
+    }
+}
+
+function parseMoBytes(bytes, view) {
+    const magic = view.getUint32(0, true);
+    const little = magic === 0x950412de;
+    if (!little && magic !== 0xde120495) return null;
+    const segments = (at, length) => {
+        const slice = bytes.subarray(at, at + length);
+        const parts = [];
+        let from = 0;
+        for (let i = 0; i < slice.length; i++) {
+            if (slice[i] === 0) {
+                parts.push(ByteArray.toString(slice.subarray(from, i)));
+                from = i + 1;
+            }
+        }
+        parts.push(ByteArray.toString(slice.subarray(from)));
+        return parts;
+    };
+    const read = (offset) => {
+        const length = view.getUint32(offset, little);
+        const at = view.getUint32(offset + 4, little);
+        return segments(at, length);
+    };
+    const table = {singles: {}, plurals: {}};
+    const count = view.getUint32(8, little);
+    const originals = view.getUint32(12, little);
+    const translations = view.getUint32(16, little);
+    for (let i = 0; i < count; i++) {
+        const ids = read(originals + i * 8);
+        if (!ids[0]) continue;                      // cabeçalho: Plural-Forms e afins
+        const forms = read(translations + i * 8);
+        if (ids.length > 1) table.plurals[ids[0]] = forms;
+        else table.singles[ids[0]] = forms[0];
+    }
+    return table;
+}
+
+function catalogFor(code) {
+    if (!(code in _catalogs)) {
+        let table = null;
+        for (const path of catalogPaths(code)) {
+            if (!GLib.file_test(path, GLib.FileTest.IS_REGULAR)) continue;
+            table = parseMo(path);
+            if (table) break;
+        }
+        _catalogs[code] = table;
+    }
+    return _catalogs[code];
+}
+
 // O catálogo tem de existir para o idioma valer: pedir francês sem catálogo
 // francês não pode deixar a interface pela metade.
 function hasCatalog(code) {
-    if (!_uuid) return false;
-    const mo = GLib.build_filenamev([dataHome(), 'locale', code, 'LC_MESSAGES', _uuid + '.mo']);
-    return GLib.file_test(mo, GLib.FileTest.IS_REGULAR);
+    return catalogFor(code) !== null;
 }
 
 function normalizeTag(tag) {
@@ -48,8 +166,12 @@ function normalizeTag(tag) {
 }
 
 function resolveLanguage(requested) {
-    const wanted = normalizeTag(requested);
-    if (wanted) return (wanted === 'en' || hasCatalog(wanted)) ? wanted : 'en';
+    // Pedido explícito vence o ambiente sempre: `auto`/vazio seguem a sessão; qualquer outro
+    // valor, ainda que sem catálogo, cai no inglês — nunca no idioma de quem estava logado.
+    if (typeof requested === 'string' && requested.trim()) {
+        const wanted = normalizeTag(requested);
+        return (wanted === 'en' || (wanted && hasCatalog(wanted))) ? wanted : 'en';
+    }
     const names = GLib.get_language_names ? GLib.get_language_names() : [];
     for (const name of names) {
         const code = normalizeTag(name);
@@ -133,6 +255,11 @@ class AIUsageApplet extends Applet.IconApplet {
         const wanted = this.language && this.language !== 'auto' ? this.language : null;
         this._languageOverride = wanted;
         this._language = resolveLanguage(wanted);
+        // O texto do painel segue a preferência desta instância (o catálogo é lido por
+        // idioma, não pelo locale do processo). O xlet aceita uma instância só
+        // (max-instances: 1 em metadata.json); com duas, o texto seria o da última que
+        // aplicou o idioma — a formatação já é por instância.
+        _language = this._language;
     }
 
     _configure() {
@@ -290,9 +417,10 @@ class AIUsageApplet extends Applet.IconApplet {
             const money = metrics.find(m => Number.isFinite(m.value));
             let detail;
             if (quota) detail = _f(_('{label}: {percent} used'),
-                                   {label: quota.label, percent: formatPercent(quota.used_percent, this._language)});
+                                   {label: this._metricLabel(quota),
+                                    percent: formatPercent(quota.used_percent, this._language)});
             else if (money) detail = _f(_('{label}: {money}'),
-                                        {label: money.label,
+                                        {label: this._metricLabel(money),
                                          money: formatMoney(money.value, money.currency, this._language)});
             else detail = {unconfigured: _('Not configured'), unavailable: _('Unavailable'),
                           error: _('Reading failed')}[service.status] || _('No reading');
@@ -301,7 +429,7 @@ class AIUsageApplet extends Applet.IconApplet {
             lines.push(`${service.label || service.id} — ${detail}`);
         }
         if (!services.length) lines.push(_('Waiting for the first reading…'));
-        if (highest >= 70) lines.push(`\n${highest >= 90 ? _('Critical quota') : _('Attention')}: ${quotas[0].service} · ${quotas[0].metric.label}`);
+        if (highest >= 70) lines.push(`\n${highest >= 90 ? _('Critical quota') : _('Attention')}: ${quotas[0].service} · ${this._metricLabel(quotas[0].metric)}`);
         const generated = this._snapshot && this._snapshot.generated_at;
         if (generated && Number.isFinite(Date.parse(generated)))
             lines.push('\n' + _f(_('Last collection: {time}'),
@@ -399,6 +527,12 @@ class AIUsageApplet extends Applet.IconApplet {
         this.menu.addMenuItem(item);
     }
 
+    // Rótulo de uma métrica que veio do cache: o identificador manda, e o texto gravado é
+    // só o recurso de quem não tem catálogo. Sem rótulo nem identificador, sobra o id.
+    _metricLabel(metric) {
+        return _recordText(metric, 'label_id', 'label_args', 'label') || (metric && metric.id) || '';
+    }
+
     _serviceRow(service) {
         const item = new PopupMenu.PopupBaseMenuItem({reactive: false});
         const box = new St.BoxLayout({vertical: true, style_class: 'ai-usage-service', width: 310});
@@ -411,7 +545,7 @@ class AIUsageApplet extends Applet.IconApplet {
         if (m && m.kind === 'quota' && Number.isFinite(m.used_percent)) {
             const value = Math.max(0, Math.min(100, m.used_percent));
             box.add_actor(new St.Label({text: _f(_('{label}: {percent} used'),
-                {label: m.label, percent: formatPercent(value, this._language)}),
+                {label: this._metricLabel(m), percent: formatPercent(value, this._language)}),
                                        style_class: 'ai-usage-service-note'}));
             const track = new St.Bin({style_class: 'ai-usage-bar-track', width: 290, height: 5,
                                       x_fill: false, x_align: St.Align.START});
@@ -428,7 +562,7 @@ class AIUsageApplet extends Applet.IconApplet {
             box.add_actor(track);
         } else if (m && Number.isFinite(m.value)) {
             box.add_actor(new St.Label({text: _f(_('{label}: {money}'),
-                {label: m.label, money: formatMoney(m.value, m.currency, this._language)}),
+                {label: this._metricLabel(m), money: formatMoney(m.value, m.currency, this._language)}),
                                        style_class: 'ai-usage-service-note'}));
         }
         if (service.status !== 'ok') box.add_actor(new St.Label({text: service.status === 'stale' ?
@@ -480,5 +614,6 @@ class AIUsageApplet extends Applet.IconApplet {
 
 function main(metadata, orientation, panelHeight, instanceId) {
     _uuid = metadata.uuid;   // o domínio gettext do xlet é o próprio uuid
+    _appletPath = metadata.path;
     return new AIUsageApplet(metadata, orientation, panelHeight, instanceId);
 }

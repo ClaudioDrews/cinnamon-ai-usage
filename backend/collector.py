@@ -18,6 +18,11 @@ from datetime import datetime
 import i18n
 from providers import SERVICES, collect_provider, diagnose, number, service, stamp, metric, read_json
 
+# Identificador do aviso de leitura vencida. É o msgid: fica gravado no snapshot junto do
+# texto, e é por ele que a interface (e o `stale_warning`) sabe o que aconteceu sem depender
+# do idioma em que a leitura foi feita.
+PENDING_MESSAGE_ID = i18n.N_("Last reading available; refresh pending.")
+
 
 def paths():
     cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home()/".cache"))) / "cinnamon-ai-usage"
@@ -32,9 +37,11 @@ def timestamp(value):
         return 0
 
 
-def empty_snapshot(message="Nenhuma leitura disponível; atualize para consultar."):
+def empty_snapshot(message=i18n.N_("No reading available; refresh to query.")):
+    """Snapshot sem leitura. ``message`` é o msgid; o texto sai no idioma da coleta e o
+    identificador fica no registro, porque este snapshot também é gravado em cache."""
     return {"schema_version": 1, "generated_at": None,
-            "services": [service(k, "unavailable", message) for k in SERVICES]}
+            "services": [service(k, "unavailable", message_id=message) for k in SERVICES]}
 
 
 def valid_snapshot(data):
@@ -53,11 +60,18 @@ def effective_ttl(config, ttl_override=None):
 
 
 def stale_read(snapshot, ttl=120):
+    """Leitura vencida pelo intervalo.
+
+    O aviso vai com identificador fixo: o texto é o que a interface mostra hoje, e o
+    ``stale_reason`` continua sendo o que decide o cartão — nada aqui se apoia no texto.
+    """
     snapshot = copy.deepcopy(snapshot)
     for item in snapshot["services"]:
         if item.get("status") == "ok" and time.time()-timestamp(item.get("read_at")) > ttl:
             item["status"] = "stale"
-            item["message"] = "Última leitura disponível; atualização pendente."
+            item["message"] = i18n._(PENDING_MESSAGE_ID)
+            item["message_id"] = PENDING_MESSAGE_ID
+            item["message_args"] = {}
             # Motivo estruturado: leitura vencida é diferente de leitura preservada após falha, e
             # a janela não pode afirmar falha onde só houve intervalo cumprido.
             item["stale_reason"] = "pending"
@@ -94,6 +108,14 @@ def merge_history(current, previous):
             # Preserve data timestamp and source: an error is not a new measurement.
             result = copy.deepcopy(previous)
             result.update(status="stale", message=current["message"], stale_reason="failure")
+            # O texto vem da coleta nova, então o identificador dela é que vale: manter o da
+            # leitura anterior ao lado de um texto novo faria a interface traduzir a frase
+            # errada. Sem identificador, o campo some em vez de mentir.
+            for campo in ("message_id", "message_args"):
+                if campo in current:
+                    result[campo] = current[campo]
+                else:
+                    result.pop(campo, None)
             return result
         return current
     if previous.get("_identity") == current.get("_identity"):
@@ -111,15 +133,23 @@ def stale_warning(service):
     Leitura vencida pelo intervalo não é falha: antes, todo cartão ``stale`` recebia "a
     atualização mais recente deste serviço falhou", inclusive quando o coletor havia dito apenas
     "atualização pendente". Vive aqui, junto do contrato, para poder ser testado sem GTK.
+
+    O motivo vem do campo estruturado ``stale_reason``, nunca do texto: o texto é tradução, e
+    tradução não é dado. Snapshots antigos, anteriores ao campo, são deduzidos pelo
+    identificador; os anteriores ao identificador, pelo texto em português que só eles têm.
     """
     motivo = (service.get("stale_reason") or "").strip().lower()
-    if not motivo:  # snapshot antigo, sem o campo estruturado: deduz pela mensagem
-        texto = service.get("message") or ""
-        motivo = "pending" if "atualização pendente" in texto else "failure"
+    if not motivo:
+        ident = service.get("message_id")
+        if ident == PENDING_MESSAGE_ID:
+            motivo = "pending"
+        elif not ident:
+            texto = service.get("message") or ""
+            motivo = "pending" if "atualização pendente" in texto else "failure"
     if motivo == "pending":
-        return ("Dados da leitura anterior: o intervalo de atualização passou e ainda não houve "
-                "nova leitura deste serviço.")
-    return "Dados da leitura anterior: a atualização mais recente deste serviço falhou."
+        return i18n._("Previous reading data: the refresh interval has passed and this "
+                      "service has not been read again yet.")
+    return i18n._("Previous reading data: the most recent refresh of this service failed.")
 
 
 def save_atomic(path, snapshot):
@@ -150,8 +180,8 @@ def collect(force=False, ttl_override=None):
             # continuam sendo as últimas conhecidas. Sem o aviso, o applet e a janela não têm
             # como distinguir "pulei" de "falhei" e acabam afirmando falha que não houve.
             adiado = stale_read(load_snapshot(path), ttl)
-            adiado["notice"] = ("Atualização ignorada: já há uma coleta em andamento; "
-                                "os valores são os últimos lidos.")
+            adiado["notice"] = i18n._("Refresh skipped: a collection is already running; "
+                                      "the values are the last reading.")
             return adiado
         old = load_snapshot(path)
         if not force and 0 <= time.time()-timestamp(old.get("generated_at")) < ttl:
@@ -284,7 +314,7 @@ def main():
             signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
             result = public(collect(args.force, args.ttl))
         except (OSError, ValueError, TypeError):
-            result = empty_snapshot("Falha ao ler configuração ou gravar o cache local.")
+            result = empty_snapshot(i18n.N_("Failed to read the configuration or write the local cache."))
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
 
 

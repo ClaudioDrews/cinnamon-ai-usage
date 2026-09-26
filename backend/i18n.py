@@ -175,6 +175,18 @@ def _(text: str) -> str:
     return _t(text)
 
 
+def N_(text: str) -> str:
+    """Marcador de msgid: devolve o texto intacto, e só existe para o xgettext extrair.
+
+    Texto que o usuário lê passa por ``_()`` no momento de mostrar. Texto que **fica
+    guardado** (mensagem e rótulo que vão para o cache do contrato) é o contrário: ali
+    grava-se o msgid, não a tradução, e a tradução acontece na apresentação. ``N_()`` é a
+    convenção do gettext para dizer "isto é um msgid, não traduza agora" — sem ela o
+    xgettext não enxerga a string e a frase some do catálogo sem erro nenhum.
+    """
+    return text
+
+
 def _n(singular: str, plural: str, n) -> str:
     catalog = _load(_state["code"])
     if catalog is None:
@@ -192,6 +204,35 @@ def _f(text: str, **values) -> str:
     for name, value in values.items():
         text = text.replace("{" + name + "}", str(value))
     return text
+
+
+def record_text(record, id_field: str = "message_id", args_field: str = "message_args",
+                text_field: str = "message") -> str:
+    """Texto de um registro persistido, no idioma em vigor.
+
+    O texto que o usuário lê **não** é o que ficou gravado na coleta: o identificador
+    (``message_id``/``label_id``) é o msgid em inglês, e o campo de texto é apenas o
+    recurso de quem não tem catálogo. Assim uma leitura guardada em português aparece
+    em português, em inglês ou em qualquer idioma com catálogo, sem recolher nada e
+    sem perder histórico (docs/i18n.md, "Textos que ficam no cache").
+
+    Devolve string vazia quando o registro não tem texto nem identificador — quem
+    chama decide o que mostrar no lugar.
+    """
+    if not isinstance(record, dict):
+        return ""
+    ident = record.get(id_field)
+    if isinstance(ident, str) and ident:
+        catalog = _load(_state["code"])
+        if catalog is None:
+            # Idioma sem catálogo é o inglês, e o msgid já é o texto: a frase guardada
+            # pode estar em outro idioma, então quem manda é o identificador.
+            return _f(ident, **(record.get(args_field) or {}))
+        translated = catalog.gettext(ident)
+        if translated != ident:
+            return _f(translated, **(record.get(args_field) or {}))
+    text = record.get(text_field)
+    return text if isinstance(text, str) else ""
 
 
 def _spec(code=None):

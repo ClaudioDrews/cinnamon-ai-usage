@@ -284,7 +284,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(request.call_count, 1)  # a segunda leitura não chamou de novo
         self.assertEqual(segunda['read_at'], first['read_at'])  # horário real, sem frescor inventado
         self.assertEqual([m['used_percent'] for m in segunda['metrics']], [3, 1])
-        self.assertIn('reaproveitada', segunda['message'])
+        self.assertIn('subscription', segunda['message_id'])
         arquivo = Path(cache)/'cinnamon-ai-usage'/'meta.json'
         self.assertEqual(stat.S_IMODE(arquivo.stat().st_mode), 0o600)
         texto = arquivo.read_text()
@@ -471,7 +471,7 @@ class ClaudeTests(unittest.TestCase):
             segunda = p.claude(config)
         self.assertEqual(request.call_count, 1)
         self.assertEqual(segunda['read_at'], first['read_at'])
-        self.assertIn('reaproveitada', segunda['message'])
+        self.assertIn('route', segunda['message_id'])
         arquivo = Path(cache)/'cinnamon-ai-usage'/'claude.json'
         self.assertEqual(stat.S_IMODE(arquivo.stat().st_mode), 0o600)
         texto = arquivo.read_text()
@@ -786,7 +786,7 @@ class LockNoticeTests(unittest.TestCase):
         with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
              patch.object(c.subprocess, 'Popen') as popen:
             resultado = c.collect(force=True)
-        self.assertIn('coleta em andamento', resultado['notice'])
+        self.assertIn('already running', resultado['notice'])  # o idioma do teste é o inglês
         self.assertEqual(resultado['generated_at'], antigo['generated_at'])
         self.assertEqual(resultado['services'][0]['status'], 'stale')
         self.assertEqual(resultado['services'][0]['metrics'][0]['used_percent'], 42.0)
@@ -896,7 +896,7 @@ class SecondReviewTests(unittest.TestCase):
                     'message': 'Última leitura disponível; atualização pendente.'}
         self.assertNotIn('falhou', c.stale_warning(pendente))
         falhou = {'status': 'stale', 'stale_reason': 'failure', 'message': 'HTTP 429'}
-        self.assertIn('falhou', c.stale_warning(falhou))
+        self.assertIn('failed', c.stale_warning(falhou))
         # Snapshot antigo, sem o campo estruturado: a mensagem do coletor decide.
         self.assertNotIn('falhou', c.stale_warning(
             {'status': 'stale', 'message': 'Última leitura disponível; atualização pendente.'}))
@@ -1078,7 +1078,7 @@ class ThirdReviewTests(unittest.TestCase):
                                      ttl=2)['services'][0]
             self.assertEqual((resultado['status'], resultado['stale_reason']),
                              ('stale', 'failure'))
-            self.assertIn('falhou', c.stale_warning(resultado))
+            self.assertIn('failed', c.stale_warning(resultado))
 
     def test_the_claude_connector_records_the_same_way(self):
         cache = self._tmp()

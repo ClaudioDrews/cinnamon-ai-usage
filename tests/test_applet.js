@@ -1,16 +1,19 @@
 'use strict';
 // Teste comportamental do applet em CJS real, com dublês só do que é externo.
 //
-// O que este arquivo NÃO prova: que o catálogo pt_BR está completo e compilado —
-// isso é tests/test_i18n.py, que lê o .po e o .mo. Aqui o dublê do gettext devolve
-// o próprio msgid, de propósito: a asserção de texto é a do idioma base (inglês) e
-// o que se mede é comportamento. A formatação, essa sim, é conferida nos dois
-// idiomas, porque depende do idioma resolvido e não do texto traduzido.
+// O gettext não é dublê: o applet lê o .mo do próprio disco (é o que `parseMo` faz), e
+// aqui o dublê de GLib entrega os bytes do catálogo versionado. Assim o teste prova o
+// que a revisão apontou como faltando: idioma da sessão e preferência da instância
+// cruzados, com texto E formatação no mesmo idioma — sem tocar no locale do processo.
+//
+// O que este arquivo NÃO prova: que o catálogo pt_BR está completo e compilado, nem que
+// o .po e o .mo concordam — isso é tests/test_i18n.py.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 let next = 1;
-const timers = new Map(), subprocesses = [], gettextCalls = [], launcherUses = [];
+const timers = new Map(), subprocesses = [], launcherUses = [];
+let sessionLanguages = ['pt_BR.UTF-8', 'pt_BR', 'pt', 'C'];
 class Actor {
     constructor(props = {}) { Object.assign(this, props); this.children = []; }
     add_actor(a) { this.children.push(a); }
@@ -46,8 +49,18 @@ function spawnProcess(argv, flags) {
         force_exit() { this.killed = true; }};
     subprocesses.push(p); return p;
 }
+// Caminho do catálogo: o applet procura junto do xlet, no diretório de dados do usuário e
+// no sistema. Só o que existe responde — é assim que a ordem de busca é exercitada — e
+// arquivo ausente lança, como o `file_get_contents` do GJS faz de verdade (o dublê que
+// devolvia [false, null] escondia isso).
+function readFile(path) {
+    const bytes = fs.readFileSync(path);
+    if (!bytes) throw new Error('vazio');
+    return [true, bytes];
+}
 const context = {
     imports: {
+        byteArray: {toString: bytes => Buffer.from(bytes).toString('utf8')},
         ui: {
             applet: { IconApplet: class {
                 constructor() { this.actor = new Actor(); this._applet_icon_box = new Actor(); }
@@ -69,18 +82,15 @@ const context = {
             }},
         },
         mainloop: {timeout_add: timeout, timeout_add_seconds: timeout, source_remove: id => timers.delete(id)},
-        // O shell do Cinnamon liga o domínio do xlet a ~/.local/share/locale; aqui o
-        // dublê devolve o msgid e registra o domínio pedido.
-        gettext: {dgettext(domain, text) { gettextCalls.push({domain, text}); return text; },
-                  bindtextdomain() {}},
         gi: {
             St: {BoxLayout: Actor, Label: Actor, Bin: Actor, Align: {START: 0}},
             Clutter: {EventType: {KEY_PRESS: 'key'}},
-            GLib: {build_filenamev: a => a.join('/'), file_test: () => true,
+            GLib: {build_filenamev: a => a.join('/'), file_test: path => fs.existsSync(path),
+                   file_get_contents: readFile,
                    FileTest: {IS_DIR: 1, IS_REGULAR: 2},
                    getenv: () => null, get_home_dir: () => '/tmp/home',
-                   // Sessão em português: é o idioma que o 'auto' deve resolver sozinho.
-                   get_language_names: () => ['pt_BR.UTF-8', 'pt_BR', 'pt', 'C']},
+                   // Idioma da sessão: o 'auto' resolve por esta lista, e o teste a troca.
+                   get_language_names: () => sessionLanguages.slice()},
             Gio: {
                 Settings: class { get_int() { return 400; } },
                 SubprocessFlags: {NONE: 0, STDOUT_PIPE: 1, STDERR_SILENCE: 2, STDOUT_SILENCE: 4},
@@ -96,16 +106,37 @@ const context = {
     },
 };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync('applet/applet.js', 'utf8') + '\nglobalThis.createApplet=main;', context);
+vm.runInContext(fs.readFileSync('applet/applet.js', 'utf8') +
+    '\nglobalThis.createApplet = main;' +
+    '\nglobalThis.text = t => _(t);' +
+    '\nglobalThis.recordText = _recordText;' +
+    '\nglobalThis.language = () => _language;' +
+    '\nglobalThis.catalogFor = catalogFor;' +
+    '\nglobalThis.parseMo = parseMo;', context);
 const UUID = 'ai-usage@claudio.drews';
-const applet = context.createApplet({uuid: UUID, path: '/tmp/applet'}, 0, 32, 1);
+
+// Fecha a leitura de arranque que a construção dispara, para o próximo comando falar com a
+// coleta de verdade.
+function closeStartup() {
+    const inicio = subprocesses.at(-1);
+    inicio.output = JSON.stringify({schema_version: 1, services: []});
+    inicio.cb(inicio, {});
+    return inicio;
+}
+
+const applet = context.createApplet({uuid: UUID, path: 'applet'}, 0, 32, 1);
 assert.equal(subprocesses.length, 1);
-const first = subprocesses[0];
-first.output = JSON.stringify({schema_version: 1, generated_at: new Date().toISOString(), services: []});
-first.cb(first, {});
+closeStartup();
 assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
 assert(applet.iconPath.endsWith('/assets/robot-head-symbolic.svg'));
 assert(applet.symbolic); // Ícone simbólico herda a cor do tema.
+// Sessão em português sem preferência: o texto sai do catálogo pt_BR lido do disco.
+assert.equal(applet._language, 'pt_BR');
+assert.equal(context.text('Update'), 'Atualizar');
+assert.equal(context.text('Critical quota'), 'Cota crítica');
+assert.equal(applet._languageOverride, null);
+assert.equal(launcherUses.length, 0, 'sem idioma fixado o filho herda o ambiente');
+
 for (const [percent, color] of [[69.9, null], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
     const agora = new Date().toISOString();
     applet._snapshot.services = [
@@ -124,10 +155,11 @@ for (const [percent, color] of [[69.9, null], [70, '#e5a50a'], [89.9, '#e5a50a']
     if (color) assert(applet._applet_icon.style.includes(color));
     else assert.equal(applet._applet_icon.style, null); // Sem alerta: estilo nulo, não vazio.
     assert.equal(applet._applet_icon_box.style, undefined); // Sem borda: o alerta é a cor do robô.
-    // Texto no idioma base e número no idioma resolvido (pt_BR): as duas coisas são independentes.
-    assert(applet.tooltip.includes(`Codex — Semana: ${percent.toFixed(1).replace('.', ',')}% used`));
+    // Texto vindo do catálogo e número no separador do idioma: os dois no mesmo idioma.
+    assert(applet.tooltip.includes(`Codex — Semana: ${percent.toFixed(1).replace('.', ',')}% usado`),
+        `tooltip em pt_BR com vírgula decimal: ${applet.tooltip}`);
     assert(applet.tooltip.includes('Disponível: 999,00 USD'));
-    assert(applet.tooltip.includes('(stale reading)'));
+    assert(applet.tooltip.includes('(leitura antiga)'));
     assert.equal(applet._recent().length, 3); // Menu filled with what has a reading, not only usage.
 }
 applet._snapshot.services = [];
@@ -150,8 +182,8 @@ assert.equal(applet._click, 0);
 assert.equal(applet.menu.isOpen, false);
 assert(subprocesses.at(-1).argv.at(-1).endsWith('window.py'));
 applet._renderMenu();
-const credentialsItem = applet.menu.items.find(i => i.label && i.label.text === 'Credentials…');
-assert(credentialsItem, 'menu deve oferecer Credentials…');
+const credentialsItem = applet.menu.items.find(i => i.label && i.label.text === 'Credenciais…');
+assert(credentialsItem, 'menu deve oferecer Credenciais…');
 credentialsItem.activate();
 assert(subprocesses.at(-1).argv.at(-1).endsWith('credentials_window.py'));
 applet._snapshot.services = Array.from({length: 8}, (_,i) => ({id: String(i), status: 'ok',
@@ -187,10 +219,11 @@ bad.output = 'invalid'; bad.cb(bad,{});
 assert.equal(applet._snapshot, saved);
 assert(applet._error);
 // Aviso público do coletor (coleta pulada por já haver outra em andamento) aparece no menu e no balão.
+const notice = 'Atualização ignorada: já há uma coleta em andamento; os valores são os últimos lidos.';
 applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [],
-    notice: 'Atualização ignorada: já há uma coleta em andamento; os valores são os últimos lidos.'};
+    notice};
 applet._renderMenu();
-assert(applet.menu.items.some(i => i.label && i.label.text === applet._snapshot.notice));
+assert(applet.menu.items.some(i => i.label && i.label.text === notice));
 applet._refreshIcon();
 assert(applet.tooltip.includes('coleta em andamento'));
 applet._snapshot.notice = null;
@@ -205,13 +238,13 @@ applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), s
      metrics: [{id: 'balance:USD', label: 'Saldo pré-pago da API', kind: 'balance', value: 7.02,
                 currency: 'USD', used_percent: null, window_seconds: null, reset_at: null}]}]};
 applet._renderMenu();
-const linhaErro = applet.menu.items.find(i => i.label && i.label.text === 'Reading failed: Codex');
+const linhaErro = applet.menu.items.find(i => i.label && i.label.text === 'Falha na leitura: Codex');
 assert(linhaErro, 'o menu precisa nomear o serviço que falhou');
 assert(linhaErro.label.classes.includes('ai-usage-menu-error'));
-assert(applet.menu.items.some(i => i.label && i.label.text === 'Stale reading: Grok / xAI'));
+assert(applet.menu.items.some(i => i.label && i.label.text === 'Leitura antiga: Grok / xAI'));
 applet._refreshIcon();
-assert(applet.tooltip.includes('Reading failed: Codex'));
-assert(applet.tooltip.includes('Stale reading: Grok / xAI'));
+assert(applet.tooltip.includes('Falha na leitura: Codex'));
+assert(applet.tooltip.includes('Leitura antiga: Grok / xAI'));
 assert(!/service\(s\)/.test(applet.tooltip), 'o balão não deve agregar falha sem nomear');
 // Leitura antiga com status ok não colore o robô: o applet confere a idade, não só o status.
 const vencida = {id: 'meta', label: 'Meta', status: 'ok',
@@ -222,10 +255,10 @@ assert.equal(applet._aged({status: 'ok', read_at: new Date(Date.now() - 60000).t
 applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [vencida]};
 applet._refreshIcon();
 assert.equal(applet._applet_icon.style, null); // uma hora de idade não mantém o ícone vermelho
-assert(applet.tooltip.includes('(stale reading)'));
-assert(applet.tooltip.includes('Stale reading: Meta'));
+assert(applet.tooltip.includes('(leitura antiga)'));
+assert(applet.tooltip.includes('Leitura antiga: Meta'));
 applet._renderMenu();
-assert(applet.menu.items.some(i => i.label && i.label.text === 'Stale reading: Meta'));
+assert(applet.menu.items.some(i => i.label && i.label.text === 'Leitura antiga: Meta'));
 // Pausar a coleta não congela o estado: o laço de idade continua reavaliando o que está na tela.
 applet.collectEnabled = false;
 applet._configure();
@@ -241,44 +274,114 @@ const consultas = subprocesses.length;
 applet._snapshot.services[0].read_at = new Date(Date.now() - 3600000).toISOString();
 reavaliar(); // é isto que o laço de 60 s faz, sem consultar serviço nenhum
 assert.equal(applet._applet_icon.style, null);
-assert(applet.tooltip.includes('Stale reading: Meta'));
+assert(applet.tooltip.includes('Leitura antiga: Meta'));
 assert.equal(subprocesses.length, consultas); // reavaliar idade não dispara consulta
 applet.collectEnabled = true;
 
-// Idioma 'auto': resolve sozinho pelo idioma da sessão, e todo pedido sai no domínio do xlet
-// — é o domínio que o shell ligou a ~/.local/share/locale (appletManager.js).
-assert.equal(applet._language, 'pt_BR');
-assert.equal(applet._languageOverride, null);
-assert(gettextCalls.length > 0);
-assert(gettextCalls.every(call => call.domain === UUID), 'o domínio gettext é o uuid do xlet');
-assert(gettextCalls.some(call => call.text === 'Update'));
-assert.equal(launcherUses.length, 0, 'sem idioma fixado o filho herda o ambiente');
+// Idioma da sessão e preferência da instância são eixos diferentes, e nenhum dos dois mexe no
+// locale do processo: o catálogo é lido por instância. Os quatro cruzamentos, com texto e
+// formatação no mesmo idioma — a revisão reproduziu justamente o caso 'en' com sessão pt_BR.
+const extras = [];
+function instance(preference, session) {
+    sessionLanguages = session;
+    const created = context.createApplet({uuid: UUID, path: 'applet'}, 0, 32, next);
+    created.language = preference;
+    created.collectEnabled = false;
+    created._configure();
+    closeStartup();
+    created._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [
+        {id: 'cash', label: 'Saldo', status: 'ok', read_at: new Date().toISOString(),
+         metrics: [{kind: 'balance', label: 'Disponível', value: 999, currency: 'USD'}]}]};
+    created._refreshIcon();
+    extras.push(created);
+    return created;
+}
 
-// Idioma fixado na configuração: o filho recebe LANGUAGE (coleta e janelas no mesmo idioma do
-// painel) e a formatação passa a ser a do inglês.
-const english = context.createApplet({uuid: UUID, path: '/tmp/applet'}, 0, 32, 2);
-english.language = 'en';
-english.collectEnabled = false;
-english._configure();
-assert.equal(english._language, 'en');
-assert.equal(english._languageOverride, 'en');
-// Fecha a leitura de arranque para o próximo comando falar com a coleta de verdade.
-const inicio = subprocesses.at(-1);
-inicio.output = JSON.stringify({schema_version: 1, services: []});
-inicio.cb(inicio, {});
-english._collect(true);
+const ptSession = ['pt_BR.UTF-8', 'pt_BR', 'pt', 'C'];
+const enSession = ['en_US.UTF-8', 'en'];
+
+const inglesSobSessaoPt = instance('en', ptSession);
+assert.equal(inglesSobSessaoPt._language, 'en');
+assert.equal(context.text('Update'), 'Update', 'preferência em inglês sobre sessão pt_BR');
+assert(inglesSobSessaoPt.tooltip.includes('Disponível: USD 999.00'),
+    'formatação em inglês junto do texto em inglês: ' + inglesSobSessaoPt.tooltip);
+assert(inglesSobSessaoPt.tooltip.includes('Last collection: '));
+
+const portuguesSobSessaoEn = instance('pt_BR', enSession);
+assert.equal(portuguesSobSessaoEn._language, 'pt_BR');
+assert.equal(context.text('Update'), 'Atualizar', 'preferência em pt_BR sobre sessão en_US');
+assert(portuguesSobSessaoEn.tooltip.includes('Disponível: 999,00 USD'),
+    'formatação em pt_BR junto do texto em pt_BR: ' + portuguesSobSessaoEn.tooltip);
+assert(portuguesSobSessaoEn.tooltip.includes('Última coleta: '));
+
+const automaticoSobSessaoEn = instance('auto', enSession);
+assert.equal(automaticoSobSessaoEn._language, 'en');
+assert.equal(context.text('Update'), 'Update');
+
+const semCatalogo = instance('fr_FR', ptSession);
+assert.equal(semCatalogo._language, 'en', 'preferência sem catálogo cai no inglês, não na sessão');
+assert.equal(context.text('Update'), 'Update');
+
+// O idioma fixado vai para os filhos (coleta e janelas): o filho herda LANGUAGE.
+const fixado = instance('en', ptSession);
+fixado.collectEnabled = false;
+fixado._collect(true);
 assert.equal(launcherUses.at(-1).env.LANGUAGE, 'en');
-english._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [
-    {id: 'cash', label: 'Balance', status: 'ok', read_at: new Date().toISOString(),
-     metrics: [{kind: 'balance', label: 'Available', value: 999, currency: 'USD'}]}]};
-english._refreshIcon();
-assert(english.tooltip.includes('Available: USD 999.00'));
-assert(english.tooltip.includes('Last collection: '));
-assert(/\d{1,2}:\d{2} (AM|PM)/.test(english.tooltip));
-english.on_applet_removed_from_panel();
+closeStartup();
 
+// Texto do cache: o identificador manda. Leitura gravada em português aparece em inglês sem
+// recolher nada, e o rótulo sem identificador sai como está (é dado da coleta, não texto nosso).
+// O idioma em vigor é o da instância (a última que aplicou a preferência), então o teste troca
+// de instância em vez de mexer no estado à mão.
+instance('pt_BR', ptSession);
+const salvoEmPortugues = {
+    message_id: 'Last reading available; refresh pending.',
+    message: 'Última leitura disponível; atualização pendente.',
+    message_args: {}};
+assert.equal(context.recordText(salvoEmPortugues, 'message_id', 'message_args', 'message'),
+             'Última leitura disponível; atualização pendente.');
+assert.equal(context.recordText({label_id: 'Update', label: 'Atualizar'},
+                                'label_id', 'label_args', 'label'), 'Atualizar');
+// Identificador que este catálogo não conhece cai no texto gravado (snapshot antigo, frase de
+// conector novo): melhor o texto da coleta do que a chave crua na tela.
+assert.equal(context.recordText({label_id: 'Não está no catálogo', label: 'Semana'},
+                                'label_id', 'label_args', 'label'), 'Semana');
+instance('en', enSession);
+assert.equal(context.recordText(salvoEmPortugues, 'message_id', 'message_args', 'message'),
+             'Last reading available; refresh pending.');
+// Rótulo de métrica: com identificador sai no idioma em vigor; sem ele (snapshot antigo ou
+// rótulo que é nome próprio) sai o texto gravado, e nunca vazio.
+assert.equal(context.recordText({label_id: 'Update', label: 'Atualizar'},
+                                'label_id', 'label_args', 'label'), 'Update');
+assert.equal(context.recordText({label: 'Semana · Opus'}, 'label_id', 'label_args', 'label'),
+             'Semana · Opus');
+assert.equal(context.recordText({}, 'label_id', 'label_args', 'label'), '');
+// Arg bruto entra como está: número formatado não é reformatado na apresentação — o que a
+// coleta formatou em pt_BR continua com vírgula mesmo na tela em inglês. Por isso número
+// formatado não vai para msgid de rótulo: quem formata é a apresentação.
+assert.equal(context.recordText({label_id: '{label}: {percent} used',
+                                 label_args: {label: 'Janela', percent: '42,0%'},
+                                 label: 'Janela: 42,0% usado'},
+                                'label_id', 'label_args', 'label'), 'Janela: 42,0% used');
+// Catálogo é lido uma vez por idioma e o de outro idioma não vaza para este.
+const ptCatalog = context.catalogFor('pt_BR');
+assert(ptCatalog !== null);
+assert.equal(context.catalogFor('fr_FR'), null);
+// Plural: a entrada é "singular\0plural" no .mo, e o ByteArray.toString corta no NUL — o
+// parser separa nos bytes antes de decodificar, e é isto que trava esse caminho.
+assert.equal(ptCatalog.plurals['{days} day'].join(' | '), '{days} dia | {days} dias');
+assert.equal(ptCatalog.singles['{days} day'], undefined);
+assert.equal(ptCatalog.singles['Update'], 'Atualizar');
+// Arquivo ausente lança no GJS de verdade: sem catálogo o idioma não vale, e o applet não
+// pode morrer por causa disso.
+assert.equal(context.parseMo('/tmp/nao-existe.mo'), null);
+assert.equal(context.parseMo('package.json'), null); // existe, mas não é catálogo
+
+// As instâncias do cruzamento de idioma também são removidas: cada uma tem o laço de idade.
+for (const extra of extras) extra.on_applet_removed_from_panel();
 applet.on_applet_clicked();
 applet.on_applet_removed_from_panel();
 assert.equal(timers.size, 0);
 assert(applet.settings.finalized);
-console.log('Applet: construction, subprocess tuple, clicks, top five, frozen menu, errors, language and cleanup OK');
+console.log('Applet: construction, subprocess tuple, clicks, top five, frozen menu, errors, '
+    + 'language crossing, cached text and cleanup OK');

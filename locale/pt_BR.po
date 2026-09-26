@@ -12,7 +12,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ai-usage@claudio.drews 0.2.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 14:49-0300\n"
+"POT-Creation-Date: 2026-09-26 15:11-0300\n"
 "PO-Revision-Date: 2026-09-26 15:00-0300\n"
 "Last-Translator: Cláudio Drews\n"
 "Language-Team: Português (Brasil)\n"
@@ -22,202 +22,265 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: applet/applet.js:197
+#: applet/applet.js:324
 msgid "Could not start the collector."
 msgstr "Não foi possível iniciar o coletor."
 
-#: applet/applet.js:231
+#: applet/applet.js:358
 msgid "Collection timed out."
 msgstr "Tempo limite da coleta excedido."
 
-#: applet/applet.js:231
+#: applet/applet.js:358
 msgid "Could not read the collector output."
 msgstr "Falha ao ler o coletor."
 
 # Applet (applet/applet.js)
-#: applet/applet.js:285
+#: applet/applet.js:412
 msgid "AI usage"
 msgstr "Uso de IA"
 
-#: applet/applet.js:292 applet/applet.js:413
+#: applet/applet.js:419 applet/applet.js:547
 msgid "{label}: {percent} used"
 msgstr "{label}: {percent} usado"
 
-#: applet/applet.js:294 applet/applet.js:430
+#: applet/applet.js:422 applet/applet.js:564
 msgid "{label}: {money}"
 msgstr "{label}: {money}"
 
-#: applet/applet.js:297
+#: applet/applet.js:425
 msgid "Not configured"
 msgstr "Não configurado"
 
-#: applet/applet.js:297
+#: applet/applet.js:425
 msgid "Unavailable"
 msgstr "Indisponível"
 
-#: applet/applet.js:298
+#: applet/applet.js:426
 msgid "Reading failed"
 msgstr "Falha na leitura"
 
-#: applet/applet.js:298
+#: applet/applet.js:426
 msgid "No reading"
 msgstr "Sem leitura"
 
-#: applet/applet.js:300
+#: applet/applet.js:428
 msgid " (stale reading)"
 msgstr " (leitura antiga)"
 
-#: applet/applet.js:303
+#: applet/applet.js:431
 msgid "Waiting for the first reading…"
 msgstr "Aguardando a primeira leitura…"
 
-#: applet/applet.js:304
+#: applet/applet.js:432
 msgid "Critical quota"
 msgstr "Cota crítica"
 
-#: applet/applet.js:304
+#: applet/applet.js:432
 msgid "Attention"
 msgstr "Atenção"
 
-#: applet/applet.js:307
+#: applet/applet.js:435
 msgid "Last collection: {time}"
 msgstr "Última coleta: {time}"
 
-#: applet/applet.js:309 applet/applet.js:369
+#: applet/applet.js:437 applet/applet.js:497
 msgid "Automatic collection paused"
 msgstr "Coleta automática pausada"
 
-#: applet/applet.js:310
+#: applet/applet.js:438
 msgid "Updating…"
 msgstr "Atualizando…"
 
-#: applet/applet.js:314 applet/applet.js:374
+#: applet/applet.js:442 applet/applet.js:502
 msgid "Reading failed: {services}"
 msgstr "Falha na leitura: {services}"
 
-#: applet/applet.js:316 applet/applet.js:377
+#: applet/applet.js:444 applet/applet.js:505
 msgid "Stale reading: {services}"
 msgstr "Leitura antiga: {services}"
 
-#: applet/applet.js:317
+#: applet/applet.js:445
 msgid "Click: recent · double-click: all"
 msgstr "Clique: recentes · clique duplo: todos"
 
-#: applet/applet.js:341
+#: applet/applet.js:469
 msgid "and {count} more"
 msgstr "e mais {count}"
 
-#: applet/applet.js:368
+#: applet/applet.js:496
 msgid "Five most recent · estimated usage"
 msgstr "Cinco mais recentes · uso estimado"
 
-#: applet/applet.js:370
+#: applet/applet.js:498
 msgid "Updating… Reopen to see the new reading."
 msgstr "Atualizando… Reabra para ver a nova leitura."
 
-#: applet/applet.js:372
+#: applet/applet.js:500
 msgid "Last values preserved."
 msgstr "Últimos valores preservados."
 
-#: applet/applet.js:379
+#: applet/applet.js:507
 msgid "No reading yet; use Update or See all."
 msgstr "Sem leitura ainda; use Atualizar ou Ver todos."
 
-#: applet/applet.js:383
+#: applet/applet.js:511
 msgid "{count} service(s) without a reading; see Credentials…"
 msgstr "{count} serviço(s) sem leitura; veja Credenciais…"
 
-#: applet/applet.js:385
+#: applet/applet.js:513
 msgid "See all services…"
 msgstr "Ver todos os serviços…"
 
-#: applet/applet.js:386
+#: applet/applet.js:514
 msgid "Update"
 msgstr "Atualizar"
 
-#: applet/applet.js:387
+#: applet/applet.js:515
 msgid "Credentials…"
 msgstr "Credenciais…"
 
-#: applet/applet.js:388
+#: applet/applet.js:516
 msgid "Settings…"
 msgstr "Configurações…"
 
-#: applet/applet.js:397
+#: applet/applet.js:525
 msgid "Could not run the action."
 msgstr "Não foi possível executar a ação."
 
-#: applet/applet.js:435
+#: applet/applet.js:569
 msgid "Stale reading — see details"
 msgstr "Leitura antiga — ver detalhes"
 
-#: applet/applet.js:435
+#: applet/applet.js:569
 msgid "No current reading"
 msgstr "Sem leitura atual"
 
-#: applet/applet.js:437
+#: applet/applet.js:571
 msgid "No observed use since installation"
 msgstr "Sem uso observado desde a instalação"
 
-#: applet/applet.js:445
+#: applet/applet.js:579
 msgid "Could not open the window."
 msgstr "Não foi possível abrir a janela."
 
-#: applet/applet.js:450
+#: applet/applet.js:584
 msgid "Could not open the credentials."
 msgstr "Não foi possível abrir as credenciais."
 
+#: backend/collector.py:24
+msgid "Last reading available; refresh pending."
+msgstr "Última leitura disponível; atualização pendente."
+
+#: backend/collector.py:40
+msgid "No reading available; refresh to query."
+msgstr "Nenhuma leitura disponível; atualize para consultar."
+
+#: backend/collector.py:150
+msgid ""
+"Previous reading data: the refresh interval has passed and this service has "
+"not been read again yet."
+msgstr ""
+"Dados da leitura anterior: o intervalo de atualização passou e ainda não "
+"houve nova leitura deste serviço."
+
+#: backend/collector.py:152
+msgid "Previous reading data: the most recent refresh of this service failed."
+msgstr ""
+"Dados da leitura anterior: a atualização mais recente deste serviço falhou."
+
+#: backend/collector.py:183
+msgid ""
+"Refresh skipped: a collection is already running; the values are the last "
+"reading."
+msgstr ""
+"Atualização ignorada: já há uma coleta em andamento; os valores são os "
+"últimos lidos."
+
+#: backend/collector.py:317
+msgid "Failed to read the configuration or write the local cache."
+msgstr "Falha ao ler a configuração ou gravar o cache local."
+
 # Backend compartilhado (backend/i18n.py)
-#: backend/i18n.py:203 backend/i18n.py:221
+#: backend/i18n.py:244 backend/i18n.py:262
 msgid "unavailable"
 msgstr "indisponível"
 
-#: backend/i18n.py:214
+#: backend/i18n.py:255
 msgid "percentage unavailable"
 msgstr "percentual indisponível"
 
-#: backend/i18n.py:245 backend/i18n.py:257
+#: backend/i18n.py:286 backend/i18n.py:298
 msgid "unknown time"
 msgstr "horário desconhecido"
 
-#: backend/i18n.py:266
+#: backend/i18n.py:307
 msgid "unknown duration"
 msgstr "duração desconhecida"
 
-#: backend/i18n.py:268
+#: backend/i18n.py:309
 msgid "under 2 minutes"
 msgstr "menos de 2 minutos"
 
-#: backend/i18n.py:271
+#: backend/i18n.py:312
 #, python-brace-format
 msgid "{minutes} min"
 msgstr "{minutes} min"
 
-#: backend/i18n.py:276
+#: backend/i18n.py:317
 #, python-brace-format
 msgid "{hours} h {minutes} min"
 msgstr "{hours} h {minutes} min"
 
-#: backend/i18n.py:277
+#: backend/i18n.py:318
 #, python-brace-format
 msgid "{hours} h"
 msgstr "{hours} h"
 
-#: backend/i18n.py:279
+#: backend/i18n.py:320
 #, python-brace-format
 msgid "{days} day"
 msgid_plural "{days} days"
 msgstr[0] "{days} dia"
 msgstr[1] "{days} dias"
 
-#: backend/i18n.py:289
+#: backend/i18n.py:330
 msgid "now"
 msgstr "agora"
 
-#: backend/i18n.py:290
+#: backend/i18n.py:331
 #, python-brace-format
 msgid "{duration} ago"
 msgstr "há {duration}"
+
+# Texto que fica no cache: mensagem e rótulo do contrato. O que se grava é este msgid; a
+# tradução acima acontece na apresentação, no idioma em vigor na hora de mostrar.
+#: backend/providers.py:48
+msgid "Failed to query the service; the previous reading is kept."
+msgstr "Não foi possível consultar o serviço; a leitura anterior é mantida."
+
+#: backend/providers.py:756
+msgid ""
+"Reading reused; the subscription is queried respecting a minimum interval "
+"between calls."
+msgstr ""
+"Leitura reaproveitada; a assinatura é consultada respeitando um intervalo "
+"mínimo entre chamadas."
+
+#: backend/providers.py:882
+msgid ""
+"Reading reused; the route is queried respecting a minimum interval between "
+"calls."
+msgstr ""
+"Leitura reaproveitada; a rota é consultada respeitando um intervalo mínimo "
+"entre chamadas."
+
+#: backend/providers.py:1043
+msgid "Failed to read the service data; try refreshing."
+msgstr "Falha ao ler os dados do serviço; tente atualizar."
+
+#: backend/window.py:704
+msgid "Metric"
+msgstr "Métrica"
 
 # Nome, descrição e preferências do xlet (applet/metadata.json, applet/settings-schema.json)
 msgid "Recent usage of the configured AI services, right in the Cinnamon panel"

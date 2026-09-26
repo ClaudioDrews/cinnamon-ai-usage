@@ -678,8 +678,10 @@ class UsageWindow(Gtk.ApplicationWindow):
             warning.set_text(collector.stale_warning(service))
             box.pack_start(warning, False, False, 0)
 
-        message = service.get("message")
-        if isinstance(message, str) and message.strip():
+        # Texto do cache: quem manda é o identificador (o msgid), não o texto gravado no
+        # idioma da coleta antiga (docs/i18n.md, "Textos que ficam no cache").
+        message = i18n.record_text(service)
+        if message.strip():
             self._add_line(box, message, dim=True)
 
         metrics = service.get("metrics")
@@ -698,7 +700,8 @@ class UsageWindow(Gtk.ApplicationWindow):
     def _build_metric_row(self, metric: dict) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         kind = (metric.get("kind") or "").strip().lower()
-        label = metric.get("label") or metric.get("id") or "Métrica"
+        label = (i18n.record_text(metric, "label_id", "label_args", "label")
+                 or metric.get("id") or i18n._("Metric"))
         if kind == "quota":
             used_percent = metric.get("used_percent")
             self._add_line(row, f"{label} · {format_percent(used_percent)}")
