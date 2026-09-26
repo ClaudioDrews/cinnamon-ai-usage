@@ -119,7 +119,14 @@ def collect(force=False, ttl_override=None):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            return stale_read(load_snapshot(path), ttl)
+            # Outra coleta está em andamento. Isso não é falha: o snapshot sai com um aviso
+            # público (``notice``) dizendo que a atualização foi ignorada, e as leituras
+            # continuam sendo as últimas conhecidas. Sem o aviso, o applet e a janela não têm
+            # como distinguir "pulei" de "falhei" e acabam afirmando falha que não houve.
+            adiado = stale_read(load_snapshot(path), ttl)
+            adiado["notice"] = ("Atualização ignorada: já há uma coleta em andamento; "
+                                "os valores são os últimos lidos.")
+            return adiado
         old = load_snapshot(path)
         if not force and 0 <= time.time()-timestamp(old.get("generated_at")) < ttl:
             return stale_read(old, ttl)

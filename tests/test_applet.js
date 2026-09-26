@@ -157,6 +157,16 @@ const bad = subprocesses.at(-1), saved = applet._snapshot;
 bad.output = 'invalid'; bad.cb(bad,{});
 assert.equal(applet._snapshot, saved);
 assert(applet._error);
+// Aviso público do coletor (coleta pulada por já haver outra em andamento) aparece no menu e no balão.
+applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [],
+    notice: 'Atualização ignorada: já há uma coleta em andamento; os valores são os últimos lidos.'};
+applet._renderMenu();
+assert(applet.menu.items.some(i => i.label && i.label.text === applet._snapshot.notice));
+applet._refreshIcon();
+assert(applet.tooltip.includes('coleta em andamento'));
+applet._snapshot.notice = null;
+applet._renderMenu();
+assert(!applet.menu.items.some(i => i.label && i.label.text === 'null'));
 applet.on_applet_clicked();
 applet.on_applet_removed_from_panel();
 assert.equal(timers.size, 0);

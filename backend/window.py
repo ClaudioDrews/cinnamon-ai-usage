@@ -535,7 +535,7 @@ class UsageWindow(Gtk.ApplicationWindow):
                 inner.pack_start(self._build_service_card(service), False, False, 0)
             self.content.pack_start(expander, False, False, 0)
 
-        if readable and not without_reading and stale_notice:
+        if readable and stale_notice:
             notice = Gtk.Label(xalign=0)
             notice.set_line_wrap(True)
             notice.set_text(
@@ -543,6 +543,11 @@ class UsageWindow(Gtk.ApplicationWindow):
                 f"{stale_notice}"
             )
             self.content.pack_start(notice, False, False, 0)
+
+        # Coleta pulada porque já havia outra em andamento: avise, sem tratá-la como falha.
+        skip_notice = snapshot.get("notice")
+        if isinstance(skip_notice, str) and skip_notice.strip():
+            self._add_line(self.content, skip_notice)
 
         self.content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
         generated = snapshot.get("generated_at")

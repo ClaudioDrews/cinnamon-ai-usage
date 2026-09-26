@@ -1,5 +1,6 @@
 """Offline regression tests: provider meaning, history, cache and secret isolation."""
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -532,6 +533,59 @@ class HistoryTests(unittest.TestCase):
         result = c.public({'services': [self.old]})
         self.assertNotIn('_identity', result['services'][0])
         self.assertIn('_identity', self.old)
+
+
+class LockNoticeTests(unittest.TestCase):
+    """Trava ocupada é aviso, não falha: o applet precisa distinguir "pulei" de "falhei"."""
+
+    def _cache_com_snapshot(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        raiz = Path(directory.name)/'cinnamon-ai-usage'
+        raiz.mkdir(parents=True)
+        antigo = {'schema_version': 1, 'generated_at': '2026-09-26T10:00:00Z', 'services': [
+            {'id': 'codex', 'label': 'Codex', 'status': 'ok', 'message': '', 'source': 'teste',
+             'read_at': '2026-09-26T10:00:00Z', 'last_used_at': None, 'recency_basis': 'unknown',
+             'metrics': [{'id': 'primary', 'label': 'Janela de 5 h', 'kind': 'quota',
+                          'used_percent': 42.0, 'value': None, 'currency': None,
+                          'window_seconds': 18000, 'reset_at': None}]}]}
+        (raiz/'snapshot.json').write_text(json.dumps(antigo))
+        return directory.name, raiz, antigo
+
+    def test_busy_lock_reports_the_skip_and_keeps_the_last_readings(self):
+        cache, raiz, antigo = self._cache_com_snapshot()
+        fd = os.open(raiz/'collect.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)  # como uma coleta em andamento
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
+             patch.object(c.subprocess, 'Popen') as popen:
+            resultado = c.collect(force=True)
+        self.assertIn('coleta em andamento', resultado['notice'])
+        self.assertEqual(resultado['generated_at'], antigo['generated_at'])
+        self.assertEqual(resultado['services'][0]['status'], 'stale')
+        self.assertEqual(resultado['services'][0]['metrics'][0]['used_percent'], 42.0)
+        popen.assert_not_called()  # nenhum provedor foi consultado
+
+    def test_the_skip_notice_is_not_written_to_the_cache(self):
+        # Aviso de coleta pulada é do momento, não estado: não pode virar conteúdo do cache.
+        cache, raiz, _ = self._cache_com_snapshot()
+        fd = os.open(raiz/'collect.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False):
+            self.assertIn('notice', c.collect(force=True))
+        self.assertNotIn('notice', json.loads((raiz/'snapshot.json').read_text()))
+
+    def test_a_fresh_snapshot_carries_no_notice(self):
+        # Caminho normal, sem disputa de trava: o aviso não deve aparecer por engano.
+        cache, raiz, _ = self._cache_com_snapshot()
+        (raiz/'snapshot.json').write_text(json.dumps(
+            {'schema_version': 1, 'generated_at': c.stamp(), 'services': []}))
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
+             patch.object(c.subprocess, 'Popen') as popen:
+            resultado = c.collect()
+        self.assertNotIn('notice', resultado)
+        popen.assert_not_called()
 
 
 class CacheTests(unittest.TestCase):

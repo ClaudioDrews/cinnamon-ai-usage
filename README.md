@@ -171,7 +171,7 @@ Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.
 
 `token_files.meta` só é necessário se o login do Muse Code estiver fora do caminho padrão (`~/.config/muse/auth.json`). `token_files.claude` só é necessário se o login do Claude Code estiver fora de `$CLAUDE_CONFIG_DIR` e de `~/.claude/.credentials.json`.
 
-A gravação do arquivo é atômica e em modo 0600. O intervalo selecionado no applet vale para suas consultas. A janela independente usa o TTL do arquivo acima (120 segundos se ausente). O botão Atualizar força a coleta em ambos. Desativar um provedor no arquivo o remove das próximas coletas; uma alteração pode aguardar o TTL ou Atualizar.
+A gravação do arquivo é atômica e em modo 0600. O intervalo selecionado no applet vale para suas consultas. A janela independente usa o TTL do arquivo acima (120 segundos se ausente). O botão Atualizar força a coleta em ambos — e, se já houver uma coleta em andamento, avisa que a atualização foi ignorada em vez de mostrar falha: os valores exibidos seguem sendo os últimos lidos. Desativar um provedor no arquivo o remove das próximas coletas; uma alteração pode aguardar o TTL ou Atualizar.
 
 O cache fica em `~/.cache/cinnamon-ai-usage/` (diretório 0700, snapshot 0600), com gravação atômica e trava para impedir consultas duplicadas. Guarda métricas e histórico, sem tokens nem respostas brutas. Campos privados de identificação usam digest SHA-256 para evitar comparar contas diferentes e são omitidos da saída pública.
 

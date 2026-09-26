@@ -184,6 +184,7 @@ class AIUsageApplet extends Applet.IconApplet {
         if (!this.collectEnabled) lines.push('Coleta automática pausada');
         if (this._proc) lines.push('Atualizando…');
         if (this._error) lines.push(this._error);
+        if (this._notice()) lines.push(this._notice());
         if (failed) lines.push(`${failed} serviço(s) com falha ou leitura antiga`);
         lines.push('\nClique: recentes · clique duplo: todos');
         this.set_applet_tooltip(lines.join('\n'));
@@ -192,6 +193,12 @@ class AIUsageApplet extends Applet.IconApplet {
     _hasReading(service) {
         return ['ok', 'stale'].includes(service.status) ||
             (Array.isArray(service.metrics) && service.metrics.length > 0);
+    }
+
+    // Aviso público do coletor (por exemplo, coleta pulada por já haver outra em andamento).
+    _notice() {
+        const aviso = this._snapshot && this._snapshot.notice;
+        return typeof aviso === 'string' && aviso ? aviso : null;
     }
 
     _lastUsed(service) {
@@ -221,6 +228,7 @@ class AIUsageApplet extends Applet.IconApplet {
         this._note('Cinco mais recentes · uso estimado');
         if (!this.collectEnabled) this._note('Coleta automática pausada');
         if (this._proc) this._note('Atualizando… Reabra para ver a nova leitura.');
+        if (this._notice()) this._note(this._notice());
         if (this._error) this._note(this._error + ' Últimos valores preservados.');
         const recent = this._recent();
         if (!recent.length) this._note('Sem leitura ainda; use Atualizar ou Ver todos.');
