@@ -231,7 +231,8 @@ def demo():
         metrics = []
         for position, (metric_id, label, kind, window) in enumerate(DEMO_SHAPES.get(id_, [])):
             if kind in ("balance", "spend"):
-                metrics.append(metric(metric_id, label, kind, value=4.02 + i + position,
+                # Valores nitidamente sintéticos: nada que possa ter vindo de uma resposta real.
+                metrics.append(metric(metric_id, label, kind, value=5.75 + i + position,
                                       currency="USD"))
                 continue
             metrics.append(metric(metric_id, label, "quota",
