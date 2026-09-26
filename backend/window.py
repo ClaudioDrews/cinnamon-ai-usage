@@ -26,8 +26,6 @@ from gi.repository import Gio, GLib, Gtk, GdkPixbuf  # noqa: E402
 import i18n  # noqa: E402
 
 APP_ID = "claudio.drews.CinnamonAIUsage"
-WINDOW_TITLE = "Uso de IA"
-WINDOW_SUBTITLE = "Serviços de IA monitorados"
 
 COLLECTOR_NAME = "collector.py"
 COLLECT_TIMEOUT_SECONDS = 50  # timeout global de coleta (contrato)
@@ -92,29 +90,17 @@ def header_icon_pixbuf(widget, path=ICON_PATH, size=ICON_SIZE):
     return pixbuf.scale_simple(size, size, GdkPixbuf.InterpType.BILINEAR)
 
 
-# Assinatura de status aceita pelo contrato.
-STATUS_LABELS = {
-    "ok": "OK",
-    "stale": "Desatualizado",
-    "unavailable": "Indisponível",
-    "unconfigured": "Não configurado",
-    "error": "Erro",
-    "disabled": "Desativado",
-}
+# Assinatura de status aceita pelo contrato. O rótulo de cada status nasce dentro de
+# `status_text()`, em `_()`: o idioma só é resolvido em `main()` e um literal traduzido
+# aqui no módulo sairia sempre em inglês.
 # Status sem leitura: vão para o expander "Sem leitura".
 # `stale` NÃO entra aqui: é leitura anterior preservada após falha e deve aparecer
 # na lista principal com o último valor, marcada com aviso (contrato).
 NO_READING_STATUSES = ("unavailable", "unconfigured", "error", "disabled")
 
-RECENCY_DESCRIPTIONS = {
-    "observed_change": "aproximada, deduzida da mudança no consumo",
-    "reported": "informada pela origem",
-    "unknown": "aproximada, origem da data desconhecida",
-}
-
 
 # --------------------------------------------------------------------------
-# Formatação (texto público, pt-BR)
+# Formatação (texto público, no idioma em vigor)
 # --------------------------------------------------------------------------
 
 
@@ -144,64 +130,49 @@ def to_local(moment):
 
 
 def format_datetime(value) -> str:
-    local = to_local(parse_timestamp(value))
-    if local is None:
-        return "horário desconhecido"
-    return local.strftime("%d/%m/%Y %H:%M")
+    """Data e hora no idioma em vigor (`i18n.datetime_text`, não `strftime` literal)."""
+    return i18n.datetime_text(to_local(parse_timestamp(value)))
 
 
 def format_duration(seconds: float) -> str:
     """Duração curta e legível: '42 min', '3 h', '2 dias'."""
-    seconds = max(0, int(seconds))
-    if seconds < 90:
-        return "menos de 2 minutos"
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes} min"
-    hours = minutes // 60
-    if hours < 48:
-        rest = minutes % 60
-        if hours < 12 and rest >= 5:
-            return f"{hours} h {rest} min"
-        return f"{hours} h"
-    return f"{hours // 24} dias"
+    return i18n.duration(seconds)
 
 
 def format_relative(value) -> str:
     """'há 3 h' para um instante do passado."""
-    moment = parse_timestamp(value)
-    if moment is None:
-        return ""
-    delta = (datetime.now(timezone.utc) - moment).total_seconds()
-    if delta < 0:
-        return "agora"
-    return f"há {format_duration(delta)}"
+    return i18n.relative(parse_timestamp(value))
 
 
 def format_number(value, decimals: int = 2) -> str:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return "indisponível"
-    return f"{float(value):.{decimals}f}".replace(".", ",")
+    return i18n.number(value, decimals)
 
 
 def format_money(value, currency) -> str:
-    text = format_number(value)
-    if text == "indisponível":
-        return text
-    return f"{text} {currency}" if currency else text
+    return i18n.money(value, currency)
 
 
 def format_percent(used_percent) -> str:
     """Percentual ausente é null no contrato: nunca exibir como zero."""
     if used_percent is None:
-        return "percentual indisponível"
-    number = format_number(used_percent, 1)
-    return f"{number}% usado" if number != "indisponível" else "percentual indisponível"
+        return i18n.percent(None)
+    number = i18n.number(used_percent, 1)
+    if number == i18n._("unavailable"):
+        return i18n.percent(None)
+    return i18n._f(i18n._("{percent}% used"), percent=number)
 
 
 def status_text(status: str) -> str:
     key = (status or "").strip().lower()
-    return STATUS_LABELS.get(key, "Indefinido" if not key else key)
+    labels = {
+        "ok": i18n._("OK"),
+        "stale": i18n._("Stale"),
+        "unavailable": i18n._("Unavailable"),
+        "unconfigured": i18n._("Not configured"),
+        "error": i18n._("Error"),
+        "disabled": i18n._("Disabled"),
+    }
+    return labels.get(key) or (i18n._("Undefined") if not key else key)
 
 
 def service_has_reading(service: dict) -> bool:
@@ -218,10 +189,16 @@ def recency_text(service: dict) -> str:
     last_used = service.get("last_used_at")
     basis = (service.get("recency_basis") or "unknown").strip().lower()
     if not isinstance(last_used, str) or not last_used.strip():
-        return "Último uso: desconhecido (a primeira leitura não tem histórico)"
+        return i18n._("Last use: unknown (the first reading has no history)")
     relative = format_relative(last_used)
-    description = RECENCY_DESCRIPTIONS.get(basis, RECENCY_DESCRIPTIONS["unknown"])
-    return f"Último uso: {relative} ({description})"
+    descriptions = {
+        "observed_change": i18n._("approximate, inferred from the change in consumption"),
+        "reported": i18n._("reported by the source"),
+        "unknown": i18n._("approximate, the origin of the date is unknown"),
+    }
+    description = descriptions.get(basis, descriptions["unknown"])
+    return i18n._f(i18n._("Last use: {relative} ({description})"),
+                   relative=relative, description=description)
 
 
 def reset_text(metric: dict) -> str:
@@ -230,16 +207,18 @@ def reset_text(metric: dict) -> str:
     if moment is None:
         return ""
     remaining = (moment - datetime.now(timezone.utc)).total_seconds()
-    relative = f"em {format_duration(remaining)}" if remaining > 0 else "aguardando atualização"
-    label = "Renova" if metric.get("kind") == "balance" else "Reinicia"
-    return f"{label} {format_datetime(reset_at)} ({relative})"
+    relative = (i18n._f(i18n._("in {duration}"), duration=format_duration(remaining))
+                if remaining > 0 else i18n._("awaiting update"))
+    template = (i18n._("Renews {datetime} ({relative})") if metric.get("kind") == "balance"
+                else i18n._("Resets {datetime} ({relative})"))
+    return i18n._f(template, datetime=format_datetime(reset_at), relative=relative)
 
 
 def window_text(metric: dict) -> str:
     seconds = metric.get("window_seconds")
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0:
         return ""
-    return f"Janela: {format_duration(seconds)}"
+    return i18n._f(i18n._("Window: {duration}"), duration=format_duration(seconds))
 
 
 def window_extra(metric: dict, label: str = "") -> str:
@@ -296,7 +275,11 @@ class CollectorClient:
             return False
         if not COLLECTOR_PATH.is_file():
             on_done(
-                CollectorResult(False, error=f"Coletor não encontrado em {COLLECTOR_PATH}.")
+                CollectorResult(
+                    False,
+                    error=i18n._f(i18n._("Collector not found at {path}."),
+                                  path=COLLECTOR_PATH),
+                )
             )
             return False
 
@@ -307,7 +290,10 @@ class CollectorClient:
             )
         except GLib.Error as exc:
             self._proc = None
-            on_done(CollectorResult(False, error=f"Falha ao iniciar o coletor: {exc.message}"))
+            on_done(CollectorResult(
+                False,
+                error=i18n._f(i18n._("Could not start the collector: {error}"),
+                              error=exc.message)))
             return False
 
         self._on_done = on_done
@@ -368,14 +354,18 @@ class CollectorClient:
         try:
             success, stdout, stderr = proc.communicate_utf8_finish(result)
         except GLib.Error as exc:
-            self._finish(CollectorResult(False, error=f"Falha ao ler a saída do coletor: {exc.message}"))
+            self._finish(CollectorResult(
+                False,
+                error=i18n._f(i18n._("Could not read the collector output: {error}"),
+                              error=exc.message)))
             return
 
         if timed_out:
             self._finish(
                 CollectorResult(
                     False,
-                    error=f"Tempo limite de {COLLECT_TIMEOUT_SECONDS}s excedido na coleta.",
+                    error=i18n._f(i18n._("Collection timed out after {seconds} seconds."),
+                                  seconds=COLLECT_TIMEOUT_SECONDS),
                     timed_out=True,
                 )
             )
@@ -388,21 +378,23 @@ class CollectorClient:
                 if line.strip():
                     detail = line.strip()[:200]
                     break
-            message = f"Coletor terminou com erro (código {code})."
+            message = i18n._f(i18n._("Collector exited with error (code {code})."), code=code)
             if detail:
-                message += f" {detail}"
+                message += " " + detail
             self._finish(CollectorResult(False, error=message))
             return
 
         try:
             snapshot = json.loads(stdout or "")
         except (json.JSONDecodeError, TypeError):
-            self._finish(CollectorResult(False, error="Resposta do coletor não é JSON válido."))
+            self._finish(CollectorResult(
+                False, error=i18n._("Collector response is not valid JSON.")))
             return
 
         services = snapshot.get("services") if isinstance(snapshot, dict) else None
         if not isinstance(services, list) or snapshot.get("schema_version") != 1:
-            self._finish(CollectorResult(False, error="Resposta do coletor fora do contrato."))
+            self._finish(CollectorResult(
+                False, error=i18n._("Collector response is outside the contract.")))
             return
 
         self._finish(CollectorResult(True, snapshot=snapshot))
@@ -417,7 +409,7 @@ class UsageWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, demo: bool = False):
         super().__init__(
             application=application,
-            title=WINDOW_TITLE,
+            title=i18n._("AI usage"),
             default_width=560,
             default_height=680,
         )
@@ -428,8 +420,8 @@ class UsageWindow(Gtk.ApplicationWindow):
         self._last_update = None
 
         header = Gtk.HeaderBar(show_close_button=True)
-        header.set_title(WINDOW_TITLE)
-        header.set_subtitle(WINDOW_SUBTITLE)
+        header.set_title(i18n._("AI usage"))
+        header.set_subtitle(i18n._("Monitored AI services"))
         icon = header_icon_pixbuf(header)
         if icon is not None:
             header.pack_start(Gtk.Image.new_from_pixbuf(icon))
@@ -439,15 +431,17 @@ class UsageWindow(Gtk.ApplicationWindow):
         else:
             # Sem SVG legível (librsvg2-common ausente): ícone do tema no lugar, sem quebrar.
             fallback = Gtk.Image.new_from_icon_name(FALLBACK_ICON_NAME, Gtk.IconSize.BUTTON)
-            fallback.set_tooltip_text("Para o robô do projeto, instale o pacote librsvg2-common")
+            fallback.set_tooltip_text(
+                i18n._("For the project robot, install the librsvg2-common package")
+            )
             header.pack_start(fallback)
         self.refresh_button = Gtk.Button.new_from_icon_name("view-refresh", Gtk.IconSize.BUTTON)
-        self.refresh_button.set_tooltip_text("Atualizar agora (força nova coleta)")
+        self.refresh_button.set_tooltip_text(i18n._("Update now (forces a new collection)"))
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         header.pack_end(self.refresh_button)
-        self.credentials_button = Gtk.Button(label="Credenciais…")
+        self.credentials_button = Gtk.Button(label=i18n._("Credentials…"))
         self.credentials_button.set_tooltip_text(
-            "Chaves de API e caminhos de arquivo: guardadas no cofre do sistema"
+            i18n._("API keys and file paths: kept in the system keyring")
         )
         self.credentials_button.connect("clicked", self._on_credentials_clicked)
         header.pack_end(self.credentials_button)
@@ -468,7 +462,7 @@ class UsageWindow(Gtk.ApplicationWindow):
         self.demo_bar = Gtk.InfoBar(message_type=Gtk.MessageType.INFO)
         self.demo_bar.set_revealed(False)
         self._info_bar_label(self.demo_bar).set_text(
-            "Demonstração — valores fictícios, sem alterar seu histórico."
+            i18n._("Demo — made-up values, without changing your history.")
         )
         root.pack_start(self.demo_bar, False, False, 0)
 
@@ -485,7 +479,7 @@ class UsageWindow(Gtk.ApplicationWindow):
         if self.demo:
             self.demo_bar.set_revealed(True)
 
-        self._show_placeholder("Carregando dados dos serviços…")
+        self._show_placeholder(i18n._("Loading service data…"))
         root.show_all()
         self.refresh_button.grab_focus()
         # Primeira abertura: usa o cache se ainda estiver no TTL (sem --force).
@@ -540,10 +534,11 @@ class UsageWindow(Gtk.ApplicationWindow):
     def _on_watchdog(self):
         self._watchdog_id = 0
         if self.collector.busy:
-            self._show_placeholder(
-                "A coleta está demorando mais que o esperado. "
-                f"O coletor é encerrado em {COLLECT_TIMEOUT_SECONDS} segundos."
-            )
+            self._show_placeholder(i18n._f(
+                i18n._("The collection is taking longer than expected. "
+                       "The collector is stopped after {seconds} seconds."),
+                seconds=COLLECT_TIMEOUT_SECONDS,
+            ))
         return GLib.SOURCE_REMOVE
 
     def _clear_watchdog(self):
@@ -561,10 +556,11 @@ class UsageWindow(Gtk.ApplicationWindow):
             self._last_update = datetime.now(timezone.utc)
             self._render_snapshot(result.snapshot)
         else:
-            self.error_label.set_text(f"Erro na coleta: {result.error}")
+            self.error_label.set_text(
+                i18n._f(i18n._("Collection error: {error}"), error=result.error))
             self.error_bar.set_revealed(True)
             if self._snapshot is None:
-                self._show_placeholder("Sem dados para exibir enquanto a coleta falha.")
+                self._show_placeholder(i18n._("No data to show while the collection fails."))
             else:
                 self._render_snapshot(self._snapshot, stale_notice=result.error)
 
@@ -580,7 +576,8 @@ class UsageWindow(Gtk.ApplicationWindow):
                 Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE,
             )
         except GLib.Error as exc:
-            self.error_label.set_text(f"Erro ao abrir as credenciais: {exc.message}")
+            self.error_label.set_text(
+                i18n._f(i18n._("Error opening the credentials: {error}"), error=exc.message))
             self.error_bar.set_revealed(True)
 
     def _on_destroy(self, _widget=None):
@@ -598,16 +595,18 @@ class UsageWindow(Gtk.ApplicationWindow):
         without_reading = [s for s in services if not service_has_reading(s)]
 
         if not services:
-            self._add_line(self.content, "O coletor não devolveu serviços.", dim=True)
+            self._add_line(self.content, i18n._("The collector returned no services."), dim=True)
 
         for service in readable:
             self.content.pack_start(self._build_service_card(service), False, False, 0)
 
         if without_reading:
             expander = Gtk.Expander()
-            expander.set_label(
-                f"Sem leitura ({len(without_reading)} serviço{'s' if len(without_reading) > 1 else ''})"
-            )
+            count = len(without_reading)
+            expander.set_label(i18n._f(
+                i18n._n("No reading ({count} service)", "No reading ({count} services)", count),
+                count=count,
+            ))
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             inner.set_border_width(8)
             expander.add(inner)
@@ -618,24 +617,30 @@ class UsageWindow(Gtk.ApplicationWindow):
         if readable and stale_notice:
             notice = Gtk.Label(xalign=0)
             notice.set_line_wrap(True)
-            notice.set_text(
-                "Exibindo a última leitura conhecida; a coleta mais recente falhou: "
-                f"{stale_notice}"
-            )
+            notice.set_text(i18n._f(
+                i18n._("Showing the last known reading; the most recent collection failed: "
+                       "{reason}"),
+                reason=stale_notice,
+            ))
             self.content.pack_start(notice, False, False, 0)
 
         # Coleta pulada porque já havia outra em andamento: avise, sem tratá-la como falha.
-        skip_notice = snapshot.get("notice")
-        if isinstance(skip_notice, str) and skip_notice.strip():
+        # Aviso do momento, jamais gravado no cache: quando houver identificador, ele manda
+        # sobre o texto que veio na coleta (docs/i18n.md, "Textos que ficam no cache").
+        skip_notice = i18n.record_text(snapshot, "notice_id", "notice_args", "notice")
+        if skip_notice.strip():
             self._add_line(self.content, skip_notice)
 
         self.content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
         generated = snapshot.get("generated_at")
-        footer = f"Coleta de {format_datetime(generated)} ({format_relative(generated)})"
+        footer = i18n._f(i18n._("Collection from {datetime} ({relative})"),
+                         datetime=format_datetime(generated),
+                         relative=format_relative(generated))
         if self._last_update is not None:
-            footer += f" · exibido às {to_local(self._last_update).strftime('%H:%M')}"
+            footer += i18n._f(i18n._(" · shown at {time}"),
+                              time=i18n.time_text(to_local(self._last_update)))
         if self.demo:
-            footer += " · dados de demonstração"
+            footer += i18n._(" · demo data")
         self._add_line(self.content, footer, dim=True)
 
         self.content.show_all()
@@ -647,7 +652,9 @@ class UsageWindow(Gtk.ApplicationWindow):
         frame.add(box)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        label = service.get("label") or service.get("id") or "Serviço"
+        # `label` do serviço é o nome público do provedor (Codex, Grok, …), não texto
+        # traduzível: o contrato não lhe dá identificador. Só o recurso vazio é nosso.
+        label = service.get("label") or service.get("id") or i18n._("Service")
         name = Gtk.Label(xalign=0)
         name.set_markup(f"<b>{escape(label)}</b>")
         header.pack_start(name, True, True, 0)
@@ -660,13 +667,15 @@ class UsageWindow(Gtk.ApplicationWindow):
         source = service.get("source")
         details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         if isinstance(source, str) and source.strip():
-            self._add_line(details, f"Origem: {source}", dim=True)
+            self._add_line(details, i18n._f(i18n._("Source: {source}"), source=source), dim=True)
 
         read_at = service.get("read_at")
-        read_line = f"Leitura: {format_datetime(read_at)}"
         relative = format_relative(read_at)
         if relative:
-            read_line += f" ({relative})"
+            read_line = i18n._f(i18n._("Reading: {datetime} ({relative})"),
+                                datetime=format_datetime(read_at), relative=relative)
+        else:
+            read_line = i18n._f(i18n._("Reading: {datetime}"), datetime=format_datetime(read_at))
         self._add_line(details, read_line, dim=True)
         self._add_line(details, recency_text(service), dim=True)
 
@@ -691,7 +700,7 @@ class UsageWindow(Gtk.ApplicationWindow):
                 if isinstance(metric, dict):
                     box.pack_start(self._build_metric_row(metric), False, False, 0)
 
-        expander = Gtk.Expander(label="Detalhes da leitura")
+        expander = Gtk.Expander(label=i18n._("Reading details"))
         expander.add(details)
         box.pack_start(expander, False, False, 0)
 
@@ -704,28 +713,37 @@ class UsageWindow(Gtk.ApplicationWindow):
                  or metric.get("id") or i18n._("Metric"))
         if kind == "quota":
             used_percent = metric.get("used_percent")
-            self._add_line(row, f"{label} · {format_percent(used_percent)}")
+            self._add_line(row, i18n._f(i18n._("{label} · {percent}"),
+                                        label=label, percent=format_percent(used_percent)))
             if used_percent is not None and isinstance(used_percent, (int, float)) and not isinstance(used_percent, bool):
                 # Barra somente para quota; valor ausente não vira barra cheia nem zero.
                 fraction = max(0.0, min(1.0, float(used_percent) / 100.0))
                 bar = Gtk.ProgressBar()
                 bar.set_fraction(fraction)
                 bar.set_show_text(False)
-                bar.set_tooltip_text(f"{format_number(used_percent, 1)}% da quota usada")
+                bar.set_tooltip_text(i18n._f(i18n._("{percent}% of the quota used"),
+                                             percent=i18n.number(used_percent, 1)))
                 row.pack_start(bar, False, False, 0)
             extras = [part for part in (window_extra(metric, label), reset_text(metric)) if part]
-            if extras:
-                self._add_line(row, " · ".join(extras), dim=True)
+            if len(extras) == 2:
+                self._add_line(row, i18n._f(i18n._("{window} · {reset}"),
+                                           window=extras[0], reset=extras[1]), dim=True)
+            elif extras:
+                self._add_line(row, extras[0], dim=True)
         elif kind == "balance":
-            self._add_line(row, f"{label}: {format_money(metric.get('value'), metric.get('currency'))}")
+            self._add_line(row, i18n._f(i18n._("{label}: {money}"), label=label,
+                                        money=format_money(metric.get("value"),
+                                                           metric.get("currency"))))
             if reset_text(metric):
                 self._add_line(row, reset_text(metric), dim=True)
         elif kind == "spend":
-            self._add_line(row, f"{label}: {format_money(metric.get('value'), metric.get('currency'))}")
+            self._add_line(row, i18n._f(i18n._("{label}: {money}"), label=label,
+                                        money=format_money(metric.get("value"),
+                                                           metric.get("currency"))))
         else:
             value = metric.get("value")
             if value is None:
-                self._add_line(row, "Sem valor informado.", dim=True)
+                self._add_line(row, i18n._("No value reported."), dim=True)
             else:
                 self._add_line(row, format_money(value, metric.get("currency")))
 
@@ -751,7 +769,7 @@ class UsageApplication(Gtk.Application):
             ord("d"),
             GLib.OptionFlags.NONE,
             GLib.OptionArg.NONE,
-            "Exibe dados de demonstração (simulação; não grava cache)",
+            i18n._("Shows demo data (a simulation; it does not write the cache)"),
             None,
         )
 
@@ -790,7 +808,8 @@ def main(argv=None) -> int:
         app.register(None)
     except GLib.Error as exc:
         print(
-            f"Aviso: instância única indisponível ({exc.message}); abrindo sem registro.",
+            i18n._f(i18n._("Warning: single instance unavailable ({reason}); "
+                           "opening without registration."), reason=exc.message),
             file=sys.stderr,
         )
         app = UsageApplication(unique=False, demo=demo)
