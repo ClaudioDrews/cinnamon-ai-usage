@@ -143,6 +143,71 @@ Sanitização, feita em seguida:
 
 Verificação desta rodada: **84 testes Python offline** (8 novos: leitura antiga na saída da coleta, motivo da falha preservada, texto do aviso, intervalo após falha nos dois conectores, cache sem o campo novo, nomes da janela iguais aos do backend, cofre vencendo o alias do arquivo), teste JS do applet (reavaliação de idade com a coleta pausada, leitura de uma hora fora da cor do ícone), `node --check`, `compileall`, prova com GTK real do texto dos cartões de leitura antiga e leitura integral do histórico para conferir a ausência de caminhos pessoais.
 
+## Terceira revisão externa (26/09/2026)
+
+Terceira revisão do mesmo commit (`3d88336`) confirmou, de forma independente, os 84 testes
+Python, o teste JS, a sintaxe, a verificação CJS/St/Gio, os 12 arquivos então instalados
+coincidindo com o repositório (0644 e diretório principal 0755), a autoria única dos 22 commits
+e a ausência de remoto e de caminho pessoal em qualquer blob. Achou três pendências; as três
+foram reproduzidas e corrigidas.
+
+- **A limpeza dos dados da conta valia só para a árvore.** As versões atuais de `README.md` e
+  `docs/validation.md` já não traziam percentuais, saldo nem identificadores de sessão, mas os
+  commits antigos continuavam carregando essas versões — e publicar o repositório publica o
+  histórico. A verificação anterior mediu a árvore e deu o item por resolvido; a medida certa é
+  varrer todo blob de todo commit. Nesta rodada os 24 commits foram reescritos com
+  `filter-branch --tree-filter` (substituições literais, só em arquivos de texto, cada uma
+  escrita a partir do que a versão publicada já diz), e o histórico passou a contar a mesma
+  coisa que o HEAD. Este commit de registro nasceu depois da reescrita, já limpo por construção.
+- **Falha da última tentativa desaparecia na leitura reaproveitada.** Com uma leitura boa no
+  cache privado, a rodada seguinte a um HTTP 429 reaproveitava essa leitura com status `ok`: o
+  coletor então a reclassificava como "atualização pendente", e a falha saía da tela sem o
+  serviço ter voltado. O cache passou a guardar o desfecho da tentativa (`attempt_status`,
+  `attempt_message`, preservando a última leitura boa) e a leitura reaproveitada sai com
+  `stale_reason` `failure` e a mensagem daquela tentativa; resposta sem os percentuais
+  esperados também é registrada como falha, nos dois conectores de quota. Reproduzido com dados
+  fictícios antes e depois — leitura boa, 429, rodada seguinte sem chamada nova: antes, `ok` na
+  saída do conector e `stale`/`pending` na tela; agora, `stale`/`failure` com o horário e os
+  valores da leitura preservados, e uma resposta nova devolve o serviço a `ok`.
+- **A janela podia informar a origem errada da credencial.** O backend passou a preferir o
+  cofre em qualquer um dos nomes, mas a janela continuava checando cofre, arquivo e ambiente de
+  um nome antes de passar ao próximo: com `XAI_MANAGEMENT_KEY` no cofre e
+  `XAI_MANAGEMENT_API_KEY` no arquivo, a coleta usava o cofre e a interface dizia "do arquivo
+  indicado". A janela passou a perguntar a origem a `credentials.value_source`, a mesma função
+  que decide a precedência para o backend — uma regra só, sem reimplementação —, e um teste
+  cobre os três níveis e a ausência de valor. Prova com GTK real nesta sessão (`Gtk.init_check`
+  verdadeiro aqui): janela de credenciais montada, três casos conferidos pelo texto do rótulo —
+  cofre do alias com arquivo do nome preferido → "guardado no cofre" (a lógica anterior diria
+  "do arquivo indicado"), só arquivo → "do arquivo indicado", nada → "não configurado".
+
+**Verificação desta rodada: 90 testes Python offline** (6 novos: falha preservada na leitura
+reaproveitada nos dois conectores, serviço que volta a responder limpando o estado anterior,
+primeira falha sem leitura anterior seguindo `unavailable` com "Consulta adiada", origem da
+credencial nos três níveis e a interface sem repetir a ordem), teste JS do applet,
+`node --check`, `compileall`, verificação CJS/St/Gio e a prova com GTK real acima. Os três
+testes que discriminam os defeitos falham contra o commit anterior e passam neste.
+
+Reescrita do histórico, com os números da varredura feita no momento da reescrita (24 commits,
+496 versões de blob de árvore): antes, 10 linhas de dado de conta existiam **só** no histórico —
+percentual medido de assinatura, saldo/recarga em moeda, horário de renovação, contagem da
+varredura de arquivos de sessão e identificador de sessão de agente —, e nenhuma delas na árvore
+publicada; depois, zero nas duas listas. No estado final (25 commits, 135 blobs no diretório de
+objetos, já com este commit de registro), a busca das 14 frases de dado de conta em **todos** os
+objetos do repositório devolve zero, incluindo os dois identificadores de sessão dos agentes. A
+árvore do `HEAD` tinha o mesmo hash antes e depois da reescrita
+(`88f2503aa7b7c5a7762588b8683cee886376a545`): a reescrita mexeu no que os commits antigos
+diziam, não no que a versão publicada entrega. Cópia do estado anterior guardada fora do
+repositório (`~/backups/cinnamon-ai-usage-antes-da-reescrita-*.bundle`, verificada como
+histórico completo, e `~/backups/cinnamon-ai-usage-dot-git-*/`), junto dos scripts de varredura
+e da prova GTK; `refs/original`, reflog e objetos soltos foram apagados depois, e `git fsck`
+fica limpo.
+
+Dois pontos deixados de propósito: os valores `-1000` dos fixtures de teste, que são valor de
+teste e continuam na árvore publicada — o que o teste confere ali é a conversão de centavos para
+a unidade monetária, não um número de conta —, e o comentário de um commit intermediário que
+cita o exemplo de `-1000` centavos da **documentação pública da xAI** — é o exemplo da
+documentação, não uma resposta da conta.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.
