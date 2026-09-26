@@ -12,12 +12,23 @@
 # Uso: sh scripts/spices.sh [destino]   (padrão: build/spice; PYTHON=... para escolher o interpretador)
 #      VALIDATE_SPICE=/caminho/do/validate-spice sh scripts/spices.sh
 #
+# O validador oficial precisa de PIL: rode com PYTHON=/usr/bin/python3, e não com o primeiro
+# `python3` do PATH (num ambiente com outro interpretador à frente, ele morre em `No module
+# named 'PIL'` antes de olhar o pacote).
+#
 # Idempotente: o destino é apagado antes de ser montado de novo.
 set -eu
 cd "$(dirname "$0")/.."
 
 UUID='ai-usage@claudio.drews'
 DEST="${1:-build/spice}"
+
+# A montagem começa apagando o destino: um caminho absurdo vindo de um teste ou de um copiar e
+# colar apagaria o que não devia.
+case "$DEST" in
+    ''|/|.|..|"$HOME"|"$HOME"/) echo "Destino recusado: '$DEST'." >&2; exit 1;;
+esac
+
 RAIZ="$DEST/$UUID"
 APP="$RAIZ/files/$UUID"
 

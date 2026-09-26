@@ -65,6 +65,31 @@ class SpicesPackageTests(unittest.TestCase):
         width, height = struct.unpack('>II', header[16:24])
         self.assertEqual((width, height), (256, 256))
 
+    def test_what_the_applet_needs_is_inside_files_uuid(self):
+        """O validador não desce em files/UUID: caminho errado aqui só aparece na instalação.
+
+        O caso real que motivou este teste: `cp -r backend` num destino que já existe aninha
+        `backend/backend/`, o applet fica sem backend e o validador responde "No errors found".
+        """
+        for obrigatorio in ('applet.js', 'metadata.json', 'settings-schema.json', 'stylesheet.css',
+                            'backend/collector.py', 'backend/i18n.py', 'backend/providers.py',
+                            'assets/robot-head-symbolic.svg'):
+            self.assertTrue((self.app/obrigatorio).is_file(), obrigatorio)
+        self.assertFalse((self.app/'backend/backend').exists(), 'backend aninhado no pacote')
+
+    def test_catalog_travels_as_source(self):
+        """Sem o .pot ao lado o validador recusa o pacote; sem o .po não há tradução nenhuma."""
+        self.assertTrue((self.app/'po'/f'{UUID}.pot').is_file())
+        self.assertTrue((self.app/'po'/'pt_BR.po').is_file())
+        self.assertFalse((self.app/'locale').exists(), 'locale/ do projeto não vai no pacote')
+
+    def test_store_root_has_what_a_reviewer_reads(self):
+        info = json.loads((self.pkg/'info.json').read_text(encoding='utf-8'))
+        self.assertEqual(info['author'], 'ClaudioDrews')
+        self.assertNotIn(' ', info['author'])
+        self.assertTrue((self.pkg/'screenshot.png').is_file())
+        self.assertTrue((self.pkg/'LICENSE').is_file())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -243,6 +243,7 @@ LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muf
 cjs tests/check_cjs_api.js
 python3 -m compileall -q backend
 sh scripts/spices.sh   # package for the applet store, in build/spice/
+PYTHON=/usr/bin/python3 VALIDATE_SPICE=/path/to/validate-spice sh scripts/spices.sh  # with the store's official validator (needs PIL)
 python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requires a graphical session
 ```
 
