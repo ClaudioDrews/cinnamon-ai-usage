@@ -52,14 +52,88 @@ function spawnProcess(argv, flags) {
         force_exit() { this.killed = true; }};
     subprocesses.push(p); return p;
 }
-// Caminho do catálogo: o applet procura junto do xlet, no diretório de dados do usuário e
-// no sistema. Só o que existe responde — é assim que a ordem de busca é exercitada — e
-// arquivo ausente lança, como o `file_get_contents` do GJS faz de verdade (o dublê que
-// devolvia [false, null] escondia isso).
-function readFile(path) {
-    const bytes = fs.readFileSync(path);
-    if (!bytes) throw new Error('vazio');
-    return [true, bytes];
+// O applet não lê arquivo de forma síncrona: o catálogo e a pasta do backend saem de
+// `Gio.File.load_contents_async` e `query_info_async`. O dublê guarda cada pedido numa fila e
+// só responde quando o teste manda (`entregar`), que é o que permite exercitar resposta
+// atrasada, fora de ordem e cancelada — e é o que prova que nada é lido durante o desenho.
+//
+// O contrato modelado é o do Gio real (conferido em `cjs` nesta máquina): o callback recebe
+// `(source_object, res)` e o `*_finish` é método do PRIMEIRO argumento, o próprio arquivo;
+// arquivo ausente e operação cancelada LANÇAM no finish, e o callback é chamado mesmo assim.
+const fila = [];
+let leiturasDeCatalogo = 0;   // quantas operações de carga (catálogo) o teste já respondeu
+const IOErrorEnum = {NOT_FOUND: 1, PERMISSION_DENIED: 14, CANCELLED: 19};
+// Caminhos que o dublê trata como ausentes / sem permissão mesmo existindo no disco: é assim
+// que se exercita "não achou em nenhum lugar" e "achou mas não deu para ler" sem mexer na
+// árvore do repositório. `conteudoForcado` responde bytes escolhidos pelo teste (catálogo
+// corrompido).
+const ausentes = new Set();
+const semPermissao = new Set();
+const conteudoForcado = new Map();
+function negar(caminho, motivo) {
+    if (motivo === 'permissao') semPermissao.add(caminho); else ausentes.add(caminho);
+}
+function liberar(caminho) { ausentes.delete(caminho); semPermissao.delete(caminho); conteudoForcado.delete(caminho); }
+function ErroGio(codigo, mensagem) {
+    const erro = new Error(mensagem);
+    erro.codigo = codigo;
+    erro.matches = (dominio, alvo) => dominio === IOErrorEnum && alvo === codigo;
+    return erro;
+}
+function entregar(predicado) {
+    const i = predicado ? fila.findIndex(predicado) : 0;
+    assert(i >= 0, 'nenhuma operação pendente casa com o pedido: '
+        + JSON.stringify(fila.map(p => p.tipo + ' ' + p.caminho)));
+    const pedido = fila.splice(i, 1)[0];
+    assert.equal(pedido.entregue, undefined, 'a mesma operação não pode ser entregue duas vezes');
+    pedido.entregue = true;
+    if (pedido.tipo === 'carga') leiturasDeCatalogo++;
+    pedido.responder();
+    return pedido;
+}
+// Drena a fila: cada resposta pode pedir a leitura do caminho seguinte (é assim que a busca do
+// catálogo percorre os quatro candidatos). Falha se a fila não esvaziar — isso seria um ciclo.
+function assentar(limite = 24) {
+    let n = 0;
+    while (fila.length && n < limite) { entregar(); n++; }
+    assert.equal(fila.length, 0, 'a fila de operações assíncronas não drenou: '
+        + JSON.stringify(fila.map(p => p.tipo + ' ' + p.caminho)));
+    return n;
+}
+function arquivoDuble(caminho) {
+    return {
+        load_contents_async(cancellable, cb) {
+            const pedido = {tipo: 'carga', caminho, cancellable};
+            pedido.responder = () => cb(this, {pedido});
+            fila.push(pedido);
+        },
+        load_contents_finish(res) {
+            const {cancellable} = res.pedido;
+            if (cancellable && cancellable.is_cancelled())
+                throw ErroGio(IOErrorEnum.CANCELLED, 'cancelado');
+            if (semPermissao.has(caminho)) throw ErroGio(IOErrorEnum.PERMISSION_DENIED, 'sem permissão');
+            if (ausentes.has(caminho)) throw ErroGio(IOErrorEnum.NOT_FOUND, 'ausente');
+            if (!fs.existsSync(caminho)) throw ErroGio(IOErrorEnum.NOT_FOUND, 'ausente');
+            const bytes = conteudoForcado.has(caminho)
+                ? conteudoForcado.get(caminho) : new Uint8Array(fs.readFileSync(caminho));
+            return [true, bytes, null];
+        },
+        query_info_async(_atributos, _flags, _prioridade, cancellable, cb) {
+            const pedido = {tipo: 'consulta', caminho, cancellable};
+            pedido.responder = () => cb(this, {pedido});
+            fila.push(pedido);
+        },
+        query_info_finish(res) {
+            const {cancellable} = res.pedido;
+            if (cancellable && cancellable.is_cancelled())
+                throw ErroGio(IOErrorEnum.CANCELLED, 'cancelado');
+            if (semPermissao.has(caminho)) throw ErroGio(IOErrorEnum.PERMISSION_DENIED, 'sem permissão');
+            if (ausentes.has(caminho)) throw ErroGio(IOErrorEnum.NOT_FOUND, 'ausente');
+            if (!fs.existsSync(caminho)) throw ErroGio(IOErrorEnum.NOT_FOUND, 'ausente');
+            const tipo = fs.statSync(caminho).isDirectory() ? 2 : 1;
+            return {get_file_type: () => tipo};
+        },
+    };
 }
 const context = {
     imports: {
@@ -88,12 +162,11 @@ const context = {
         gi: {
             St: {BoxLayout: Actor, Label: Actor, Bin: Actor, Align: {START: 0}},
             Clutter: {EventType: {KEY_PRESS: 'key'}},
-            GLib: {build_filenamev: a => a.join('/'), file_test: path => fs.existsSync(path),
+            GLib: {build_filenamev: a => a.join('/'),
                    // As constantes que o applet devolve nos callbacks de timer, com o mesmo
                    // valor do GLib real: o harness trata o retorno pela veracidade.
                    SOURCE_CONTINUE: true, SOURCE_REMOVE: false,
-                   file_get_contents: readFile,
-                   FileTest: {IS_DIR: 1, IS_REGULAR: 2},
+                   PRIORITY_DEFAULT: 0,
                    getenv: name => (Object.prototype.hasOwnProperty.call(sessionEnv, name)
                        ? sessionEnv[name] : null),
                    get_home_dir: () => '/tmp/home'},
@@ -107,6 +180,16 @@ const context = {
                     spawnv(argv) { launcherUses.push({argv, env: this.env});
                                    return spawnProcess(argv, this.flags); }
                 },
+                File: {new_for_path: arquivoDuble},
+                // Mesmos valores do Gio real (conferidos em cjs): DIRECTORY é 2.
+                FileType: {UNKNOWN: 0, REGULAR: 1, DIRECTORY: 2},
+                FileQueryInfoFlags: {NONE: 0},
+                IOErrorEnum,
+                Cancellable: class {
+                    constructor() { this.cancelado = false; }
+                    cancel() { this.cancelado = true; }
+                    is_cancelled() { return this.cancelado; }
+                },
             },
         },
     },
@@ -119,21 +202,37 @@ vm.runInContext(fs.readFileSync('applet/applet.js', 'utf8') +
     '\nglobalThis.fill = _f;' +
     '\nglobalThis.language = () => _language;' +
     '\nglobalThis.catalogFor = catalogFor;' +
-    '\nglobalThis.parseMo = parseMo;' +
+    '\nglobalThis.parseMoBytes = parseMoBytes;' +
+    '\nglobalThis.caminhosDoCatalogo = catalogPaths;' +
+    '\nglobalThis.esquecerCatalogo = code => { delete _catalogs[code]; };' +
+    '\nglobalThis.emVoo = code => !!_catalogLoads[code];' +
     '\nglobalThis.plural = _n;', context);
 const UUID = 'ai-usage@claudio.drews';
 
-// Fecha a leitura de arranque que a construção dispara, para o próximo comando falar com a
-// coleta de verdade.
+// Fecha a coleta de arranque que a resolução do backend dispara, para o próximo comando falar
+// com a coleta de verdade. Com a descoberta assíncrona, a coleta só nasce depois da resposta do
+// `query_info_async` — e um applet com a coleta pausada não dispara nenhuma (devolve null).
 function closeStartup() {
-    const inicio = subprocesses.at(-1);
+    const inicio = subprocesses
+        .filter(p => p.argv.some(a => a.endsWith('collector.py')) && !p.fechado).at(-1);
+    if (!inicio) return null;
+    inicio.fechado = true;
     inicio.output = JSON.stringify({schema_version: 1, services: []});
     inicio.cb(inicio, {});
     return inicio;
 }
 
 const applet = context.createApplet({uuid: UUID, path: 'applet'}, 0, 32, 1);
-assert.equal(subprocesses.length, 1);
+// Nada é lido nem spawnado de forma síncrona na construção: as duas descobertas (catálogo e
+// pasta do backend) ficam pendentes até o teste responder, e é isso que o painel real faz.
+assert.equal(subprocesses.length, 0, 'construção não spawna antes de resolver o backend');
+assert.equal(applet._backend, null, 'backend nasce nulo');
+assert.equal(applet._languageResolved, false, 'idioma nasce pendente');
+assert.deepEqual(fila.map(p => p.tipo).sort(), ['carga', 'consulta'],
+    'uma leitura de catálogo e uma consulta de backend pendentes');
+assentar();
+assert(applet._backend.endsWith('/backend'));
+assert.equal(applet._languageResolved, true);
 closeStartup();
 assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
 assert(applet.iconPath.endsWith('/assets/robot-head-symbolic.svg'));
@@ -296,6 +395,7 @@ function instance(preference, env) {
     created.language = preference;
     created.collectEnabled = false;
     created._configure();
+    assentar();  // catálogo (e backend) respondidos: o idioma da instância fica resolvido
     closeStartup();
     created._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [
         {id: 'cash', label: 'Saldo', status: 'ok', read_at: new Date().toISOString(),
@@ -534,10 +634,135 @@ instance('en', enSession);
 assert.equal(context.plural('{days} day', '{days} days', 0), '{days} days');
 assert.equal(context.plural('{days} day', '{days} days', 1), '{days} day');
 assert.equal(context.plural('{days} day', '{days} days', 2), '{days} days');
-// Arquivo ausente lança no GJS de verdade: sem catálogo o idioma não vale, e o applet não
-// pode morrer por causa disso.
-assert.equal(context.parseMo('/tmp/nao-existe.mo'), null);
-assert.equal(context.parseMo('package.json'), null); // existe, mas não é catálogo
+// Arquivo ausente lança no GJS de verdade: quem trata é a leitura assíncrona, cujo finish lança
+// Gio.IOErrorEnum.NOT_FOUND e leva o applet ao caminho seguinte — sem catálogo o idioma não vale
+// e a interface sai em inglês, em vez de o painel morrer. O parser recebe bytes e devolve null
+// para o que não é catálogo.
+function bytesDe(texto) {
+    const bytes = new Uint8Array(Buffer.from(texto));
+    return [bytes, new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)];
+}
+// Refugo com tamanho suficiente para o parser olhar o cabeçalho (o applet só trata bytes com
+// 28 ou mais): não é catálogo e devolve null em vez de derrubar o painel.
+assert.equal(context.parseMoBytes(...bytesDe('x'.repeat(64))), null);
+const naoCatalogo = new Uint8Array(fs.readFileSync('applet/metadata.json'));
+assert.equal(context.parseMoBytes(naoCatalogo,
+    new DataView(naoCatalogo.buffer, naoCatalogo.byteOffset, naoCatalogo.byteLength)), null);
+
+// ─── O que só existe porque a leitura deixou de ser bloqueante ────────────────────────────
+// Cada caso abaixo falharia com a leitura síncrona de antes: resposta chegando depois do
+// desenho, depois de outra escolha, ou depois de a instância sair do painel.
+function coletasDeArranque() {
+    return subprocesses.filter(p => p.argv.some(a => a.endsWith('collector.py'))).length;
+}
+function janelasDeUso() {
+    return subprocesses.filter(p => p.argv.some(a => a.endsWith('window.py'))).length;
+}
+function instanciaPendente(preference, env) {
+    sessionEnv = env;
+    const created = context.createApplet({uuid: UUID, path: 'applet'}, 0, 32, next);
+    created.language = preference;
+    created.collectEnabled = false;
+    created._configure();
+    extras.push(created);
+    return created;
+}
+const ptPaths = context.caminhosDoCatalogo('pt_BR');
+assert.equal(ptPaths.length, 4, 'quatro caminhos de busca do catálogo');
+
+// 1. Nada é lido durante o desenho: com a leitura pendente não há texto nenhum, e o idioma
+//    também não está decidido — o painel desenha uma vez, já no idioma certo.
+context.esquecerCatalogo('pt_BR');
+const pendente = instanciaPendente('pt_BR', ptSession);
+assert.equal(pendente._languageResolved, false);
+assert.equal(pendente.tooltip, undefined, 'não desenha antes de o idioma resolver');
+assert.equal(context.catalogFor('pt_BR'), null, 'leitura em voo não vale como ausente');
+assert.equal(context.emVoo('pt_BR'), true, 'a leitura está em voo');
+assert.deepEqual(fila.map(p => p.tipo).sort(), ['carga', 'consulta'], 'uma de cada, sem repetir');
+
+// 2. Resposta fora de ordem: a escolha nova vence a leitura antiga, e a tabela lida fica em
+//    memória para a próxima escolha não pagar outra leitura.
+pendente.language = 'en';
+pendente._configure();
+assert.equal(pendente._language, 'en', 'inglês resolve sem tocar no disco');
+assert(pendente.tooltip.includes('AI usage'), 'desenha em inglês: ' + pendente.tooltip);
+assert.equal(fila.filter(p => p.tipo === 'carga').length, 1, 'inglês não acrescenta leitura');
+assentar();
+assert.equal(pendente._language, 'en', 'resposta tardia não sobrescreve a escolha mais nova');
+assert(context.catalogFor('pt_BR') !== null, 'a tabela lida fica guardada');
+assert.equal(context.emVoo('pt_BR'), false, 'a leitura em voo terminou');
+
+// 3. Idioma já lido não volta ao disco, e a preferência explícita vence a sessão.
+pendente.language = 'pt_BR';
+pendente._configure();
+assert.equal(pendente._language, 'pt_BR');
+assert(pendente.tooltip.includes('Uso de IA'), 'volta ao português: ' + pendente.tooltip);
+assert.equal(fila.length, 0, 'nenhuma leitura nova para idioma já em memória');
+
+// 4. Sem catálogo em nenhum caminho e catálogo corrompido: cai no inglês, não derruba o painel,
+//    e a conclusão negativa é guardada — a segunda tentativa não lê de novo.
+context.esquecerCatalogo('pt_BR');
+for (const caminho of ptPaths) negar(caminho);
+const semCatalogoNoDisco = instanciaPendente('pt_BR', ptSession);
+assentar();
+assert.equal(semCatalogoNoDisco._language, 'en', 'sem catálogo em nenhum caminho: inglês');
+assert.equal(context.catalogFor('pt_BR'), null, 'a ausência é guardada como ausência');
+let leituras = leiturasDeCatalogo;
+semCatalogoNoDisco._configure();
+assentar();
+assert.equal(leiturasDeCatalogo, leituras, 'não relê o que já sabe ausente');
+for (const caminho of ptPaths) liberar(caminho);
+context.esquecerCatalogo('pt_BR');
+const caminhoDoCatalogo = ptPaths.find(caminho => fs.existsSync(caminho));
+assert(caminhoDoCatalogo, 'o catálogo versionado está no segundo caminho');
+conteudoForcado.set(caminhoDoCatalogo, new Uint8Array(Buffer.from('x'.repeat(64))));
+const corrompido = instanciaPendente('pt_BR', ptSession);
+assentar();
+assert.equal(corrompido._language, 'en', 'catálogo corrompido não derruba o painel: inglês');
+assert.equal(context.catalogFor('pt_BR'), null);
+liberar(caminhoDoCatalogo);
+
+// 5. Instância removida no meio das duas leituras: resposta cancelada não desenha nada, não
+//    spawna coleta e não deixa operação pendente.
+context.esquecerCatalogo('pt_BR');
+const removida = instanciaPendente('pt_BR', ptSession);
+assert(context.emVoo('pt_BR'), 'catálogo em voo na hora da remoção');
+assert(fila.some(p => p.tipo === 'consulta'), 'backend em voo na hora da remoção');
+const tooltipAntes = removida.tooltip;
+const coletasAntes = coletasDeArranque();
+const janelasAntes = janelasDeUso();
+removida.on_applet_removed_from_panel();
+assert(removida._cancellable.is_cancelled(), 'cancelável cancelado na remoção');
+assert(assentar() > 0, 'as respostas canceladas chegam depois da remoção');
+assert.equal(removida.tooltip, tooltipAntes, 'nada é desenhado depois da remoção');
+assert.equal(removida._backend, null, 'a descoberta cancelada não preenche o backend');
+assert.equal(removida._languageResolved, false, 'a leitura cancelada não fixa idioma');
+assert.equal(coletasDeArranque(), coletasAntes, 'instância removida não spawna coleta');
+assert.equal(janelasDeUso(), janelasAntes, 'nem abre janela');
+
+// 6. Backend: permissão negada não é ausência. Ausente tenta o layout irmão (a construção já
+//    exercitou); com permissão negada o applet mostra o erro e não inventa caminho.
+for (const caminho of ['applet/backend', 'applet/../backend']) negar(caminho, 'permissao');
+const negado = instanciaPendente('auto', ptSession);
+assentar();
+assert.equal(negado._backend, null, 'permissão negada não cai para o layout irmão');
+assert.equal(negado._error, context.text('Could not find the applet backend.'));
+assert.equal(coletasDeArranque(), coletasAntes, 'sem backend não há coleta');
+for (const caminho of ['applet/backend', 'applet/../backend']) liberar(caminho);
+
+// 7. Clique antes de o backend ser resolvido: a ação espera em vez de rodar contra um caminho
+//    que ainda não existe.
+const cedo = context.createApplet({uuid: UUID, path: 'applet'}, 0, 32, next);
+cedo.collectEnabled = false;
+extras.push(cedo);
+cedo.on_applet_clicked();
+cedo.on_applet_clicked();
+const cliquePendente = timers.get(cedo._click);
+if (cliquePendente) { timers.delete(cedo._click); cliquePendente(); }
+assert.equal(janelasDeUso(), janelasAntes, 'clique sem backend resolvido não abre janela');
+assert.equal(cedo._backend, null);
+assentar();
+assert(cedo._backend.endsWith('/backend'), 'e depois da resposta o caminho existe');
 
 // Prosa presa no código do painel: literal que uma pessoa lê tem de passar por `_()`. A
 // conta ignora (a) o que é argumento dos helpers de tradução, (b) pedaço de concatenação,

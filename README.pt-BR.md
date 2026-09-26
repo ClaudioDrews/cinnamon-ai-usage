@@ -4,7 +4,7 @@
 
 ![Banner em pixel art do Cinnamon AI Usage: um robô de tela verde numa mesa à noite, três monitores com consultas de cota, gráfico de uso e código, um menu com Uso de IA selecionado e uma barra do painel com a porcentagem de cada serviço](docs/banner.png)
 
-Versão 0.2.0. Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
+Versão 0.2.1. Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
 
 - **Clique simples:** até cinco serviços, primeiro os com uso observado e depois os de leitura mais recente (quem não tem leitura não ocupa linha).
 - **Passe o mouse:** balão com resumo por serviço, horário da coleta e avisos.
@@ -241,6 +241,7 @@ node tests/test_applet.js
 GI_TYPELIB_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muffin \
 LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muffin \
 cjs tests/check_cjs_api.js
+cjs tests/medir_bloqueio_do_laco.js   # contrasta leitura síncrona e assíncrona no laço principal
 python3 -m compileall -q backend
 sh scripts/spices.sh   # monta o pacote da loja de applets em build/spice/
 PYTHON=/usr/bin/python3 VALIDATE_SPICE=/caminho/do/validate-spice sh scripts/spices.sh  # com o validador oficial da loja (exige PIL)
@@ -248,7 +249,7 @@ python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requer sessão gráfica
 python3 scripts/capturar-painel.py  # refaz docs/menu*.png e docs/tooltip*.png a partir do painel vivo (exige python3-xlib)
 ```
 
-Os testes offline cobrem parsers, ausência versus zero, renovação, recência, troca de conta, falha preservando cache e isolamento de segredos. O teste JS simula o ambiente do applet para conferir cliques, timers, coleta e limite de cinco; não substitui a validação no painel real. O teste GTK abre e fecha uma janela de demonstração. O script de captura do painel não é coberto pela suíte: ele precisa do applet carregado num painel vivo e devolve o snapshot real do applet quando termina.
+Os testes offline cobrem parsers, ausência versus zero, renovação, recência, troca de conta, falha preservando cache e isolamento de segredos. O teste JS simula o ambiente do applet para conferir cliques, timers, coleta e limite de cinco; não substitui a validação no painel real. O `tests/medir_bloqueio_do_laco.js` mede o que uma leitura bloqueante custa ao laço principal do shell, contra a mesma leitura feita de forma assíncrona, e sai com código diferente de zero se o contraste desaparecer. O teste GTK abre e fecha uma janela de demonstração. O script de captura do painel não é coberto pela suíte: ele precisa do applet carregado num painel vivo e devolve o snapshot real do applet quando termina.
 
 Arquitetura e formato: [docs/contract.md](docs/contract.md). Evidências, fontes e limitações: [docs/validation.md](docs/validation.md).
 

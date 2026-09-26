@@ -1,4 +1,57 @@
-# Validation of version 0.2.0 — 25 and 26/09/2026
+# Validation of version 0.2.1 — 25 to 26/09/2026
+
+## Round 0.2.1 — catalog and backend discovery are asynchronous (26/09/2026)
+
+The applet runs inside the Cinnamon process, so a file operation that waits holds the whole
+desktop with it. This round removed the two synchronous file operations the panel had, both of
+which the store's pattern scanner reports: the translation catalog read
+(`sync_file_get_contents`, `applet.js:127`) and the `stat` that chose the backend folder
+(`sync_file_test`, `applet.js:276`).
+
+What changed, and nothing else:
+
+- **Catalog:** `Gio.File.load_contents_async()`, once per language, over the same four candidate
+  paths, with the parsed table cached in memory. A read in flight is no longer mistaken for a
+  missing catalog (callers for the same language wait for the same answer), the previous
+  presentation stays until the new one arrives, a generation counter discards the answer of a
+  superseded language choice, and the first paint waits for the language to resolve so a pt_BR
+  session does not flash a frame of English. `_()` never touches the disk: it only reads the table
+  that is already in memory.
+- **Backend folder:** `Gio.File.query_info_async()` once, result kept. A missing directory makes
+  the applet try the sibling layout; a permission error does not (the path exists and the cause is
+  another), and the failure is shown by name. The icon and the first collection wait for that
+  answer, and a click before it spawns nothing — instead of a synchronous `stat` in the
+  constructor.
+- One new msgid, `Could not find the applet backend.`, with its pt_BR translation.
+
+Measured in this machine's real runtime, not estimated:
+
+    versão: 0.2.1 · suíte Python 250 testes OK · CJS 115.1
+
+- `cjs tests/medir_bloqueio_do_laco.js` — a read that blocks (300 ms FIFO stand-in) held the
+  shell's main loop for **281.8 ms**; the same read through `load_contents_async` cost the loop
+  **0.6 ms**, with the data still arriving at ~302 ms. The four catalog probes cost ~0.1 ms with a
+  warm page cache (0.25 ms the first time). The common case was therefore never a visible stall
+  and this round does not claim it was: what it removes is the unbounded case — the file that
+  takes as long as it takes.
+- `cjs tests/check_cjs_api.js` — in the shell's own runtime: `load_contents_async` and
+  `query_info_async` exist; `load_contents_finish` returns `[boolean, Uint8Array, string]` whose
+  bytes carry the `.mo` magic `0x950412de`; `query_info_async` answers `FileType.DIRECTORY` for a
+  directory; a missing path throws an error matching `Gio.IOErrorEnum.NOT_FOUND` and a cancelled
+  operation one matching `Gio.IOErrorEnum.CANCELLED`.
+- `node tests/test_applet.js` — 163 checks, and 21 of them are new cases that only exist because
+  the reads stopped being blocking: no text is drawn before the language resolves, a late answer
+  does not overwrite a newer choice, a catalog absent on all four paths (and a corrupted one)
+  falls back to English without a crash and is not read again, a permission error on the backend
+  folder is not treated as absence, and an instance removed from the panel while both reads are in
+  flight is cancelled without drawing, spawning or leaving anything pending.
+- `pattern-checker` over the packaged tree: *No pattern matches found.* The same scanner and the
+  same emulation reported `applet.js:127` and `applet.js:276` on the previous revision; injecting
+  the old `GLib.file_test()` line back into that tree is still reported, so the clean run is a
+  measurement and not a scanner that stopped looking.
+
+No connector changed and no service was queried differently, so the service state table below
+still holds.
 
 ## Current state — 26/09/2026
 

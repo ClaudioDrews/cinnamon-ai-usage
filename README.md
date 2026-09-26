@@ -4,7 +4,7 @@
 
 ![Cinnamon AI Usage — pixel art banner: a robot with a green screen face on a desk at night, three monitors showing quota queries, a usage chart and code, a menu with AI Usage selected, and a panel bar with the percentage of each service](docs/banner.png)
 
-Version 0.2.0. Local applet to check quotas, spend, and balances of AI services on Linux Mint Cinnamon.
+Version 0.2.1. Local applet to check quotas, spend, and balances of AI services on Linux Mint Cinnamon.
 
 - **Single click:** up to five services, first those with observed use and then those with the most recent reading (those without a reading don't take up a line).
 - **Hover:** tooltip with per-service summary, collection time, and warnings.
@@ -241,6 +241,7 @@ node tests/test_applet.js
 GI_TYPELIB_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muffin \
 LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muffin \
 cjs tests/check_cjs_api.js
+cjs tests/medir_bloqueio_do_laco.js   # contrasts synchronous and asynchronous reads on the main loop
 python3 -m compileall -q backend
 sh scripts/spices.sh   # package for the applet store, in build/spice/
 PYTHON=/usr/bin/python3 VALIDATE_SPICE=/path/to/validate-spice sh scripts/spices.sh  # with the store's official validator (needs PIL)
@@ -248,7 +249,7 @@ python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requires a graphical sessio
 python3 scripts/capturar-painel.py  # refresh docs/menu*.png and docs/tooltip*.png from the live panel (needs python3-xlib)
 ```
 
-The offline tests cover parsers, absence versus zero, renewal, recency, account change, failure preserving cache, and secret isolation. The JS test simulates the applet's environment to check clicks, timers, collection, and the five-item limit; it doesn't replace validation on the real panel. The GTK test opens and closes a demo window. The panel capture script isn't covered by the suite: it needs the applet loaded in a live panel, and it restores the applet's real snapshot when it finishes.
+The offline tests cover parsers, absence versus zero, renewal, recency, account change, failure preserving cache, and secret isolation. The JS test simulates the applet's environment to check clicks, timers, collection, and the five-item limit; it doesn't replace validation on the real panel. `tests/medir_bloqueio_do_laco.js` measures what a blocking read costs the shell's main loop against the same read made asynchronously, and exits non-zero if the contrast disappears. The GTK test opens and closes a demo window. The panel capture script isn't covered by the suite: it needs the applet loaded in a live panel, and it restores the applet's real snapshot when it finishes.
 
 Architecture and format: [docs/contract.md](docs/contract.md). Evidence, sources, and limitations: [docs/validation.md](docs/validation.md).
 
