@@ -20,20 +20,8 @@
     background-color: #e01b24;
 }
 
-.ai-usage-bar-box {
-    padding: 2px 0px 0px 0px;
-}
-
 .ai-usage-service {
     padding: 2px 4px;
-}
-
-.ai-usage-service-row {
-    spacing: 8px;
-}
-
-.ai-usage-service-value {
-    font-weight: bold;
 }
 
 .ai-usage-service-note {

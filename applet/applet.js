@@ -158,7 +158,6 @@ class AIUsageApplet extends Applet.IconApplet {
     _refreshIcon() {
         if (this._stopped) return;
         const services = this._snapshot ? this._snapshot.services : [];
-        const failed = services.filter(s => ['error', 'stale'].includes(s.status)).length;
         const quotas = this._quotas(services);
         const highest = quotas.length ? quotas[0].metric.used_percent : 0;
         this._paintIcon(highest);
@@ -185,7 +184,10 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._proc) lines.push('Atualizando…');
         if (this._error) lines.push(this._error);
         if (this._notice()) lines.push(this._notice());
-        if (failed) lines.push(`${failed} serviço(s) com falha ou leitura antiga`);
+        const comFalha = this._byStatus('error');
+        if (comFalha.length) lines.push(`Falha na leitura: ${this._list(comFalha)}`);
+        const antigas = this._byStatus('stale');
+        if (antigas.length) lines.push(`Leitura antiga: ${this._list(antigas)}`);
         lines.push('\nClique: recentes · clique duplo: todos');
         this.set_applet_tooltip(lines.join('\n'));
     }
@@ -199,6 +201,17 @@ class AIUsageApplet extends Applet.IconApplet {
     _notice() {
         const aviso = this._snapshot && this._snapshot.notice;
         return typeof aviso === 'string' && aviso ? aviso : null;
+    }
+
+    // Indicador de erro separado de cota: nomeia quem falhou, sem tocar na cor da cota.
+    _byStatus(...statuses) {
+        const services = (this._snapshot && this._snapshot.services) || [];
+        return services.filter(s => statuses.includes(s.status)).map(s => s.label || s.id);
+    }
+
+    _list(names, limit = 3) {
+        if (names.length <= limit) return names.join(', ');
+        return `${names.slice(0, limit).join(', ')} e mais ${names.length - limit}`;
     }
 
     _lastUsed(service) {
@@ -217,9 +230,9 @@ class AIUsageApplet extends Applet.IconApplet {
         return used.concat(rest).slice(0, 5);
     }
 
-    _note(label) {
+    _note(label, styleClass) {
         const item = new PopupMenu.PopupMenuItem(label, {reactive: false});
-        item.label.add_style_class_name('ai-usage-menu-note');
+        item.label.add_style_class_name(styleClass || 'ai-usage-menu-note');
         this.menu.addMenuItem(item);
     }
 
@@ -230,6 +243,11 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._proc) this._note('Atualizando… Reabra para ver a nova leitura.');
         if (this._notice()) this._note(this._notice());
         if (this._error) this._note(this._error + ' Últimos valores preservados.');
+        const comFalha = this._byStatus('error');
+        if (comFalha.length) this._note(`Falha na leitura: ${this._list(comFalha)}`,
+                                        'ai-usage-menu-error');
+        const antigas = this._byStatus('stale');
+        if (antigas.length) this._note(`Leitura antiga: ${this._list(antigas)}`);
         const recent = this._recent();
         if (!recent.length) this._note('Sem leitura ainda; use Atualizar ou Ver todos.');
         for (const service of recent) this._serviceRow(service);

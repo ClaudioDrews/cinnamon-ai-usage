@@ -7,7 +7,7 @@ const timers = new Map(), subprocesses = [];
 class Actor {
     constructor(props = {}) { Object.assign(this, props); this.children = []; }
     add_actor(a) { this.children.push(a); }
-    add_style_class_name() {}
+    add_style_class_name(name) { (this.classes = this.classes || []).push(name); }
     set_style(style) { this.style = style; }
     set_child(a) { this.children = [a]; }
     connect(name, cb) { this[name] = cb; }
@@ -167,6 +167,23 @@ assert(applet.tooltip.includes('coleta em andamento'));
 applet._snapshot.notice = null;
 applet._renderMenu();
 assert(!applet.menu.items.some(i => i.label && i.label.text === 'null'));
+// Indicador de erro separado de cota: nomeia quem falhou, com estilo próprio, sem mexer na cota.
+applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [
+    {id: 'codex', label: 'Codex', status: 'error', message: 'HTTP 500', source: 'teste',
+     read_at: null, last_used_at: null, recency_basis: 'unknown', metrics: []},
+    {id: 'grok', label: 'Grok / xAI', status: 'stale', message: '', source: 'teste',
+     read_at: null, last_used_at: null, recency_basis: 'unknown',
+     metrics: [{id: 'balance:USD', label: 'Saldo pré-pago da API', kind: 'balance', value: 7.02,
+                currency: 'USD', used_percent: null, window_seconds: null, reset_at: null}]}]};
+applet._renderMenu();
+const linhaErro = applet.menu.items.find(i => i.label && i.label.text === 'Falha na leitura: Codex');
+assert(linhaErro, 'o menu precisa nomear o serviço que falhou');
+assert(linhaErro.label.classes.includes('ai-usage-menu-error'));
+assert(applet.menu.items.some(i => i.label && i.label.text === 'Leitura antiga: Grok / xAI'));
+applet._refreshIcon();
+assert(applet.tooltip.includes('Falha na leitura: Codex'));
+assert(applet.tooltip.includes('Leitura antiga: Grok / xAI'));
+assert(!/serviço\(s\) com falha/.test(applet.tooltip), 'o balão não deve mais agregar sem nomear');
 applet.on_applet_clicked();
 applet.on_applet_removed_from_panel();
 assert.equal(timers.size, 0);

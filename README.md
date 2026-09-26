@@ -11,6 +11,8 @@ Versão 0.2.0. Applet local para consultar cotas, gastos e saldos de serviços d
 
 O menu não muda de ordem enquanto estiver aberto. A janela usa o tema GTK do sistema, tem rolagem e separa os serviços sem leitura.
 
+Falha e leitura antiga aparecem nomeadas, separadas da cota: `Falha na leitura: Codex, Grok` em vermelho no menu e no balão, e `Leitura antiga: Antigravity` sem destaque — a cor do robô continua respondendo só a percentual de cota.
+
 O robô aparece no painel como ícone simbólico: em uso normal ele segue a cor do tema, fica **amarelo a partir de 70% usado** e **vermelho a partir de 90%**, considerando a maior porcentagem entre todas as janelas de todos os serviços com leitura válida. Saldos e gastos sem teto conhecido não acionam a cor; leituras antigas são identificadas no balão e excluídas do cálculo. O SVG está em `assets/robot-head-symbolic.svg` (fundo transparente, `fill:currentColor`).
 
 ## Estado da primeira versão
