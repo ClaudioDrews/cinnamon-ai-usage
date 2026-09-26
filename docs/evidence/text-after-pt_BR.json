@@ -180,8 +180,8 @@
   "servicos": [
    {
     "id": "codex",
-    "message": "",
-    "status": "ok"
+    "message": "Codex CLI não encontrado.",
+    "status": "unconfigured"
    },
    {
     "id": "claude",
