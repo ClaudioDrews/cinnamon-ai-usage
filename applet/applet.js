@@ -119,6 +119,11 @@ function catalogPaths(code) {
 // fatia inteira de uma vez devolveria só o singular, sem erro nenhum.
 function parseMo(path) {
     try {
+        // Leitura síncrona de propósito: é um arquivo local de poucos KB, lido uma vez por
+        // idioma e guardado em `_catalogs`. Os rótulos do painel são montados string a
+        // string, no desenho, onde não há como esperar um callback; assíncrono obrigaria a
+        // adiar todo texto até o catálogo chegar. Idioma sem catálogo — o caso comum — é o
+        // arquivo ausente, que custa só a exceção tratada logo abaixo.
         const [ok, bytes] = GLib.file_get_contents(path);
         if (!ok || !bytes || bytes.length < 28) return null;
         return parseMoBytes(bytes, new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
@@ -169,7 +174,9 @@ function catalogFor(code) {
     if (!(code in _catalogs)) {
         let table = null;
         for (const path of catalogPaths(code)) {
-            if (!GLib.file_test(path, GLib.FileTest.IS_REGULAR)) continue;
+            // Sem pré-teste de existência: `file_test` é um stat síncrono, e `parseMo` já
+            // devolve null para caminho ausente ou ilegível — a checagem só repetia o que a
+            // leitura faz de qualquer forma.
             table = parseMo(path);
             if (table) break;
         }
@@ -312,7 +319,7 @@ class AIUsageApplet extends Applet.IconApplet {
             this._collect(false);
             this._loop = Mainloop.timeout_add_seconds(Math.max(30, this.collectInterval || 120), () => {
                 this._collect(false);
-                return true;
+                return GLib.SOURCE_CONTINUE;
             });
         } else if (!this._snapshot) this._collect(false, true);
         // A idade da leitura é reavaliada mesmo com a coleta pausada — e a pausa é justamente
@@ -321,7 +328,7 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._ageLoop) Mainloop.source_remove(this._ageLoop);
         this._ageLoop = Mainloop.timeout_add_seconds(60, () => {
             this._refreshIcon();
-            return true;
+            return GLib.SOURCE_CONTINUE;
         });
         this._refreshIcon();
     }
@@ -341,7 +348,7 @@ class AIUsageApplet extends Applet.IconApplet {
             this._click = Mainloop.timeout_add(this._doubleClickMs, () => {
                 this._click = 0;
                 this._toggleMenu();
-                return false;
+                return GLib.SOURCE_REMOVE;
             });
         }
     }
@@ -376,9 +383,9 @@ class AIUsageApplet extends Applet.IconApplet {
             this._killTimer = Mainloop.timeout_add_seconds(3, () => {
                 this._killTimer = 0;
                 if (this._proc === proc) proc.force_exit();
-                return false;
+                return GLib.SOURCE_REMOVE;
             });
-            return false;
+            return GLib.SOURCE_REMOVE;
         });
         proc.communicate_utf8_async(null, null, (p, result) => {
             if (this._proc !== p) return;

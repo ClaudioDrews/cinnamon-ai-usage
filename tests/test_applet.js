@@ -89,6 +89,9 @@ const context = {
             St: {BoxLayout: Actor, Label: Actor, Bin: Actor, Align: {START: 0}},
             Clutter: {EventType: {KEY_PRESS: 'key'}},
             GLib: {build_filenamev: a => a.join('/'), file_test: path => fs.existsSync(path),
+                   // As constantes que o applet devolve nos callbacks de timer, com o mesmo
+                   // valor do GLib real: o harness trata o retorno pela veracidade.
+                   SOURCE_CONTINUE: true, SOURCE_REMOVE: false,
                    file_get_contents: readFile,
                    FileTest: {IS_DIR: 1, IS_REGULAR: 2},
                    getenv: name => (Object.prototype.hasOwnProperty.call(sessionEnv, name)
