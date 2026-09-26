@@ -26,6 +26,9 @@ xgettext --from-code=UTF-8 --language=Python --keyword=_ --no-location \
     -o "$WORK/xlet.pot" "$WORK/xlet_strings.py"
 
 msgcat -o "locale/$DOMAIN.pot" "$WORK/applet.pot" "$WORK/backend.pot" "$WORK/xlet.pot"
+# A data de criação muda a cada execução e o .pot é versionado: fixada fora, rodar o
+# script de novo deixa a árvore limpa — idempotente se prova, não se afirma.
+sed -i '/^"POT-Creation-Date:/d' "locale/$DOMAIN.pot"
 msgmerge --quiet --update --backup=none "locale/pt_BR.po" "locale/$DOMAIN.pot"
 mkdir -p "locale/pt_BR/LC_MESSAGES"
 msgfmt --check --statistics -o "locale/pt_BR/LC_MESSAGES/$DOMAIN.mo" locale/pt_BR.po
