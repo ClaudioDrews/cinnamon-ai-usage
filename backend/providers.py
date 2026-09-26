@@ -334,9 +334,9 @@ def parse_grok(payload):
 
     ``total.val`` vem com o sinal invertido: recarga entra como valor negativo no razão e o total
     é a soma das mudanças, de modo que o crédito disponível é o módulo desse total (conferido em
-    resposta real: recarga negativa, total negativo, mesmo valor absoluto). O denominador do percentual
-    são os créditos concedidos — a soma das recargas — porque a chave não traz teto próprio; a
-    métrica só aparece quando existe consumo, para não encher o menu de barra em zero.
+    resposta real: recarga negativa, total negativo, mesmo valor absoluto). O denominador do
+    percentual são os créditos concedidos — a soma das recargas — porque a chave não traz teto
+    próprio; a métrica só aparece quando existe consumo, para não encher o menu de barra em zero.
     """
     total = number((payload.get("total") or {}).get("val"))
     if total is None:
@@ -485,37 +485,93 @@ def quota_cache_path(name):
     return Path(cache)/"cinnamon-ai-usage"/f"{name}.json"
 
 
-def quota_read_cache(name, interval, identity):
-    """Leitura anterior do serviço, se for da mesma conta e ainda válida."""
+def quota_cache(name, identity):
+    """Conteúdo do cache privado do serviço, quando for da mesma conta."""
     data = read_json(quota_cache_path(name))
     if not isinstance(data, dict) or data.get("identity") != identity:
+        return None
+    return data
+
+
+def quota_age(value):
+    """Idade, em segundos, de um carimbo ISO; ``None`` quando o valor não serve."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return (datetime.now(timezone.utc)
+                - datetime.fromisoformat(value.replace("Z", "+00:00"))).total_seconds()
+    except ValueError:
+        return None
+
+
+def quota_read_cache(name, interval, identity):
+    """Leitura anterior do serviço, se for da mesma conta e ainda válida.
+
+    A validade é medida pela última **tentativa**, não só pela última leitura boa: depois de um
+    erro (HTTP 429, por exemplo) a tentativa fica registrada e o intervalo mínimo continua
+    valendo. Antes, uma tentativa falha não atualizava o controle, e a coleta automática repetia
+    a chamada a cada dois minutos — agravando exatamente o bloqueio que o intervalo evita.
+    """
+    data = quota_cache(name, identity)
+    if not data:
         return None
     metrics, read_at = data.get("metrics"), data.get("read_at")
     if not isinstance(metrics, list) or not metrics or not isinstance(read_at, str):
         return None
-    try:
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(read_at.replace("Z", "+00:00")))
-    except ValueError:
-        return None
-    if age.total_seconds() < interval:
+    age = quota_age(data.get("attempted_at") or read_at)
+    if age is not None and age < interval:
         return read_at, metrics
     return None
 
 
-def quota_write_cache(name, identity, read_at, metrics):
-    """Guarda a última leitura em arquivo privado; só o digest da conta, nunca o token."""
+def quota_attempt_recent(name, interval, identity):
+    """True quando já houve tentativa dentro do intervalo (mesmo sem leitura boa)."""
+    data = quota_cache(name, identity)
+    if not data:
+        return False
+    age = quota_age(data.get("attempted_at") or data.get("read_at"))
+    return age is not None and age < interval
+
+
+def _write_quota_cache(name, identity, read_at, metrics, attempted_at):
     path = quota_cache_path(name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(path.parent, 0o700)
         fd, temp = tempfile.mkstemp(prefix=f".{name}-", dir=path.parent)
         with os.fdopen(fd, "w") as f:
-            json.dump({"read_at": read_at, "identity": identity, "metrics": metrics}, f)
+            json.dump({"read_at": read_at, "identity": identity, "metrics": metrics,
+                       "attempted_at": attempted_at}, f)
             f.flush(); os.fsync(f.fileno())
         os.chmod(temp, 0o600)
         os.replace(temp, path)
     except OSError:
         pass
+
+
+def quota_mark_attempt(name, identity):
+    """Carimba a tentativa antes da chamada, preservando a última leitura boa.
+
+    É este carimbo que faz o intervalo mínimo valer depois de falhas: sem ele, três tentativas
+    seguidas produziam três chamadas.
+    """
+    data = quota_cache(name, identity) or {}
+    metrics = data.get("metrics") if isinstance(data.get("metrics"), list) else []
+    read_at = data.get("read_at") if isinstance(data.get("read_at"), str) else None
+    _write_quota_cache(name, identity, read_at, metrics, stamp())
+
+
+def quota_write_cache(name, identity, read_at, metrics):
+    """Guarda a última leitura em arquivo privado; só o digest da conta, nunca o token."""
+    _write_quota_cache(name, identity, read_at, metrics, stamp())
+
+
+def quota_deferred(interval):
+    """Erro honesto para a consulta adiada pelo intervalo mínimo, sem repetir a chamada."""
+    minutos = max(1, round(interval/60))
+    return Unavailable(
+        f"Consulta adiada: já houve tentativa nos últimos {minutos} min e o intervalo mínimo "
+        "entre chamadas ainda não passou; a leitura anterior é mantida.", "unavailable")
 
 
 def meta_cache_path():
@@ -580,6 +636,7 @@ def meta(config=None):
                           "assinatura da Meta.", "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
     source = "Muse Code · assinatura da Meta"
+    interval = meta_interval(config)
     cached = meta_read_cache(config, identity)
     if cached:
         read_at, metrics = cached
@@ -589,6 +646,11 @@ def meta(config=None):
         # Não inventar frescor: o applet passa a mostrar a leitura como antiga pelo horário real.
         result["read_at"] = read_at
         return result
+    if quota_attempt_recent("meta", interval, identity):
+        # A tentativa anterior (mesmo sem leitura boa) ainda está dentro do intervalo: não
+        # repetir a chamada é o ponto do intervalo mínimo.
+        raise quota_deferred(interval)
+    quota_mark_attempt("meta", identity)
     payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
     read_at = stamp()
     metrics = parse_meta(payload)
@@ -691,7 +753,8 @@ def claude(config=None):
                               "sessão (o applet não renova credenciais).", "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
     source = "Claude Code · assinatura (não verificado)"
-    cached = quota_read_cache("claude", claude_interval(config), identity)
+    interval = claude_interval(config)
+    cached = quota_read_cache("claude", interval, identity)
     if cached:
         read_at, metrics = cached
         result = service("claude", source=source, metrics=metrics, identity=identity,
@@ -699,6 +762,9 @@ def claude(config=None):
                                  "intervalo mínimo entre chamadas.")
         result["read_at"] = read_at  # horário real: frescor não se inventa
         return result
+    if quota_attempt_recent("claude", interval, identity):
+        raise quota_deferred(interval)
+    quota_mark_attempt("claude", identity)
     payload = request(CLAUDE_USAGE_URL, token, headers={"anthropic-beta": CLAUDE_BETA})
     read_at = stamp()
     metrics = parse_claude(payload)

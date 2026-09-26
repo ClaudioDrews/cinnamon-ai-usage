@@ -57,6 +57,9 @@ def stale_read(snapshot, ttl=120):
         if item.get("status") == "ok" and time.time()-timestamp(item.get("read_at")) > ttl:
             item["status"] = "stale"
             item["message"] = "Última leitura disponível; atualização pendente."
+            # Motivo estruturado: leitura vencida é diferente de leitura preservada após falha, e
+            # a janela não pode afirmar falha onde só houve intervalo cumprido.
+            item["stale_reason"] = "pending"
     return snapshot
 
 
@@ -89,7 +92,7 @@ def merge_history(current, previous):
         if current["status"] != "disabled" and previous.get("metrics"):
             # Preserve data timestamp and source: an error is not a new measurement.
             result = copy.deepcopy(previous)
-            result.update(status="stale", message=current["message"])
+            result.update(status="stale", message=current["message"], stale_reason="failure")
             return result
         return current
     if previous.get("_identity") == current.get("_identity"):
@@ -99,6 +102,23 @@ def merge_history(current, previous):
             current["last_used_at"] = current["read_at"]
             current["recency_basis"] = "observed_change"
     return current
+
+
+def stale_warning(service):
+    """Aviso de leitura antiga conforme o motivo real.
+
+    Leitura vencida pelo intervalo não é falha: antes, todo cartão ``stale`` recebia "a
+    atualização mais recente deste serviço falhou", inclusive quando o coletor havia dito apenas
+    "atualização pendente". Vive aqui, junto do contrato, para poder ser testado sem GTK.
+    """
+    motivo = (service.get("stale_reason") or "").strip().lower()
+    if not motivo:  # snapshot antigo, sem o campo estruturado: deduz pela mensagem
+        texto = service.get("message") or ""
+        motivo = "pending" if "atualização pendente" in texto else "failure"
+    if motivo == "pending":
+        return ("Dados da leitura anterior: o intervalo de atualização passou e ainda não houve "
+                "nova leitura deste serviço.")
+    return "Dados da leitura anterior: a atualização mais recente deste serviço falhou."
 
 
 def save_atomic(path, snapshot):
@@ -174,8 +194,12 @@ def collect(force=False, ttl_override=None):
                 if proc.stdout: proc.stdout.close()
         snapshot = {"schema_version": 1, "generated_at": stamp(),
                     "services": [merge_history(result[k], before.get(k)) for k in SERVICES]}
+        # O cache guarda o estado cru (status ok com o read_at real), e a saída recebe a mesma
+        # avaliação de idade que o `read` faz. Sem isto, o estado dependia do caminho: uma leitura
+        # reaproveitada de dez minutos atrás saía como ok na coleta e como antiga na leitura — e
+        # uma cota vencida continuava colorindo o robô.
         save_atomic(path, snapshot)
-        return snapshot
+        return stale_read(snapshot, ttl)
 
 
 # Forma de cada conector na demonstração. O demo não pode afirmar o que o serviço não mede:

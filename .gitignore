@@ -4,3 +4,7 @@ __pycache__/
 *.log
 .cache/
 dist/
+
+# Notas locais de quem trabalha neste projeto: não fazem parte do applet distribuído
+# e não devem aparecer na árvore nem no histórico publicado.
+AGENTS.md

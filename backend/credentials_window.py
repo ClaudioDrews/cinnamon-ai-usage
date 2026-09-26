@@ -35,13 +35,15 @@ KEY_SERVICES = (
     ("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "a chave em /api/v1/key"),
     ("deepseek", "DeepSeek", "DEEPSEEK_API_KEY", "a chave de API do saldo"),
     ("opencode", "OpenCode Go", "OPENCODE_GO_API_KEY", "a chave do plano Go (Zen não serve)"),
-    ("grok", "Grok / xAI", "XAI_MANAGEMENT_KEY",
+    ("grok", "Grok / xAI", "XAI_MANAGEMENT_API_KEY",
      "management key do Console → Settings → Management Keys (a de inferência não serve)"),
     ("nous", "Nous Portal", "NOUS_PORTAL_TOKEN", "token OAuth da conta"),
 )
 
-# Nomes equivalentes aceitos pela mesma credencial.
-KEY_ALIASES = {"XAI_MANAGEMENT_KEY": ("XAI_MANAGEMENT_API_KEY",)}
+# Nomes equivalentes aceitos pela mesma credencial. A variável gravada é sempre a preferida do
+# backend (a primeira de SERVICE_KEYS): gravar num alias fazia a chave recém-salva perder para
+# uma credencial antiga do arquivo.
+KEY_ALIASES = {"XAI_MANAGEMENT_API_KEY": ("XAI_MANAGEMENT_KEY",)}
 
 # Serviços cujo token costuma viver em arquivo JSON de outro programa.
 TOKEN_SERVICES = (("nous", "Nous Portal"),)
@@ -258,12 +260,16 @@ class CredentialsWindow(Gtk.ApplicationWindow):
             self._inform(f"Não foi possível gravar no cofre: {error}", Gtk.MessageType.ERROR)
             return
         entry.set_text("")
-        self._inform(f"{label}: credencial guardada no cofre. Próxima coleta já usa.")
+        self._inform(f"{label}: credencial guardada no cofre como {variable}. "
+                     "O cofre tem precedência; próxima coleta já usa.")
         self.refresh_status()
 
     def _on_remove_key(self, _button, variable, label):
         try:
-            removed = credentials.keyring_delete(variable)
+            # Remove também os nomes equivalentes: "removido do cofre" precisa ser verdade
+            # inteira, senão um alias esquecido continuaria autenticando.
+            removed = any([credentials.keyring_delete(name)
+                           for name in (variable,) + KEY_ALIASES.get(variable, ())])
         except Exception as error:
             self._inform(f"Não foi possível remover: {error}", Gtk.MessageType.ERROR)
             return

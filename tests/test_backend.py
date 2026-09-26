@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -103,6 +104,8 @@ class ProviderTests(unittest.TestCase):
                             for origem, valor in changes]}
 
     def test_grok_balance_is_the_available_credit_not_the_ledger_sign(self):
+        # Forma observada na resposta da xAI: a recarga entra negativa no razão e o total fica
+        # negativo, de modo que o crédito disponível é o módulo do total.
         metrics = p.parse_grok(self._grok_payload('-1000', [('PURCHASE', '-1000')]))
         self.assertEqual(metrics[0]['value'], 10.0)
         self.assertEqual(metrics[0]['currency'], 'USD')
@@ -778,6 +781,128 @@ class CacheTests(unittest.TestCase):
             with patch.object(c, 'paths', return_value=(cache, Path(d)/'config.json')), patch.object(c.subprocess, 'Popen') as spawn:
                 c.collect(False)
                 spawn.assert_not_called()
+
+
+class SecondReviewTests(unittest.TestCase):
+    """Segunda revisão: idade real, intervalo depois de falha, alias do cofre, aviso honesto."""
+
+    def _tmp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return directory.name
+
+    def _aged_service(self, id_, minutos=10):
+        item = p.service(id_, 'ok', '', 'teste', [{
+            'id': 'janela', 'label': 'Janela de 5 h', 'kind': 'quota', 'used_percent': 90.0,
+            'value': None, 'currency': None, 'window_seconds': 18000, 'reset_at': None}])
+        item['read_at'] = p.stamp(time.time() - minutos*60)
+        return item
+
+    def test_collection_does_not_present_an_old_reading_as_current(self):
+        # Leitura de dez minutos atrás com TTL de dois: a saída da coleta precisa dar o mesmo
+        # veredito que o `read` — antes ela saía 'ok' e a cota antiga coloria o robô.
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake(*args, **_kwargs):
+                return _FakeProc(json.dumps(self._aged_service(args[0][-1])).encode())
+            with patch.dict(os.environ, {'XDG_CACHE_HOME': tmp}, clear=False), \
+                 patch.object(c.subprocess, 'Popen', side_effect=fake):
+                resultado = c.collect(force=True)
+            meta = [s for s in resultado['services'] if s['id'] == 'meta'][0]
+            self.assertEqual((meta['status'], meta['stale_reason']), ('stale', 'pending'))
+            self.assertEqual(meta['metrics'][0]['used_percent'], 90.0)  # valor real preservado
+            salvos = {s['id']: s for s in json.loads(
+                (Path(tmp)/'cinnamon-ai-usage'/'snapshot.json').read_text())['services']}
+            self.assertEqual(salvos['meta']['status'], 'ok')  # o cache guarda o estado cru
+            self.assertEqual(c.stale_read({'services': [salvos['meta']]})['services'][0]['status'],
+                             'stale')  # e o mesmo snapshot lido depois dá o mesmo veredito
+
+    def test_a_failed_refresh_keeps_the_data_and_names_the_failure(self):
+        anterior = self._aged_service('meta')
+        falha = p.service('meta', 'error', 'Credencial recusada.', 'teste', [])
+        resultado = c.merge_history(falha, anterior)
+        self.assertEqual(resultado['status'], 'stale')
+        self.assertEqual(resultado['stale_reason'], 'failure')
+        self.assertEqual(resultado['read_at'], anterior['read_at'])  # erro não é medição nova
+
+    def test_the_warning_does_not_claim_failure_when_only_the_interval_lapsed(self):
+        pendente = {'status': 'stale', 'stale_reason': 'pending',
+                    'message': 'Última leitura disponível; atualização pendente.'}
+        self.assertNotIn('falhou', c.stale_warning(pendente))
+        falhou = {'status': 'stale', 'stale_reason': 'failure', 'message': 'HTTP 429'}
+        self.assertIn('falhou', c.stale_warning(falhou))
+        # Snapshot antigo, sem o campo estruturado: a mensagem do coletor decide.
+        self.assertNotIn('falhou', c.stale_warning(
+            {'status': 'stale', 'message': 'Última leitura disponível; atualização pendente.'}))
+
+    def _meta_login(self, token='token-de-teste'):
+        path = Path(self._tmp())/'auth.json'
+        path.write_text(json.dumps({'providers': {'meta': {'access_token': token}}}))
+        return str(path)
+
+    def test_a_failed_attempt_holds_the_minimum_interval(self):
+        # Três tentativas seguidas não podem virar três chamadas: com HTTP 429 a coleta
+        # automática repetia a consulta a cada dois minutos e agravava o bloqueio.
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._tmp()}, clear=False), \
+             patch.object(p, 'request', side_effect=p.Unavailable('HTTP 429', 'error')) as request:
+            config = {'token_files': {'meta': self._meta_login()}}
+            primeira = p.collect_provider('meta', config)
+            segunda = p.collect_provider('meta', config)
+            terceira = p.collect_provider('meta', config)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(primeira['status'], 'error')
+        for depois in (segunda, terceira):
+            self.assertEqual(depois['status'], 'unavailable')
+            self.assertIn('Consulta adiada', depois['message'])
+
+    def test_a_failed_attempt_holds_the_interval_for_claude_too(self):
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._tmp()}, clear=False), \
+             patch.object(p, 'request', side_effect=p.Unavailable('HTTP 429', 'error')) as request:
+            path = Path(self._tmp())/'.credentials.json'
+            path.write_text(json.dumps({'claudeAiOauth': {
+                'accessToken': 'token-de-teste',
+                'expiresAt': int((time.time() + 3600) * 1000)}}))
+            config = {'token_files': {'claude': str(path)}}
+            p.collect_provider('claude', config)
+            p.collect_provider('claude', config)
+        self.assertEqual(request.call_count, 1)
+
+    def test_an_old_snapshot_still_reads_its_interval_from_the_reading(self):
+        # Cache escrito antes do campo `attempted_at`: continua valendo pelo horário da leitura.
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {'XDG_CACHE_HOME': tmp}, clear=False):
+                raiz = Path(tmp)/'cinnamon-ai-usage'
+                raiz.mkdir(parents=True)
+                (raiz/'meta.json').write_text(json.dumps(
+                    {'read_at': p.stamp(), 'identity': 'x', 'metrics': [{'id': 'janela'}]}))
+                self.assertIsNotNone(p.quota_read_cache('meta', 900, 'x'))
+                self.assertTrue(p.quota_attempt_recent('meta', 900, 'x'))
+
+
+class CredentialPrecedenceTests(unittest.TestCase):
+    """Cofre vence o arquivo mesmo gravado sob o nome alternativo (revisão: alias vencia)."""
+
+    def test_the_window_saves_the_variable_the_backend_prefers(self):
+        # Gravar num alias fazia a chave recém-salva perder para a credencial antiga do arquivo.
+        fonte = (Path(__file__).resolve().parents[1]/'backend'/'credentials_window.py').read_text()
+        pares = re.findall(r'\("(\w+)", "([^"]+)", "([A-Z_]+)"', fonte)
+        self.assertTrue(pares)
+        for servico, _rotulo, variavel in pares:
+            self.assertIn(servico, p.credentials.SERVICE_KEYS)
+            self.assertEqual(variavel, p.credentials.SERVICE_KEYS[servico][0], servico)
+
+    def test_the_keyring_wins_over_an_old_alias_in_the_file(self):
+        limpo = {k: v for k, v in os.environ.items()
+                 if k not in ('XAI_MANAGEMENT_API_KEY', 'XAI_MANAGEMENT_KEY')}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, limpo, clear=True):
+            arquivo = Path(tmp)/'secrets.env'
+            arquivo.write_text('XAI_MANAGEMENT_API_KEY=chave-velha\n')
+            config = {'credentials_path': str(arquivo)}
+            cofre = {'XAI_MANAGEMENT_KEY': 'chave-nova'}
+            with patch.object(p.credentials, 'keyring_get',
+                              side_effect=lambda nome: cofre.get(nome)):
+                self.assertEqual(p.credentials.service_value('grok', config), 'chave-nova')
+                cofre.clear()
+                self.assertEqual(p.credentials.service_value('grok', config), 'chave-velha')
 
 
 if __name__ == '__main__':

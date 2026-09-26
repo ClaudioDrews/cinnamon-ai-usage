@@ -20,6 +20,7 @@ class AIUsageApplet extends Applet.IconApplet {
         this._error = null;
         this._proc = null;
         this._loop = 0;
+        this._ageLoop = 0;
         this._click = 0;
         this._watchdog = 0;
         this._killTimer = 0;
@@ -58,6 +59,14 @@ class AIUsageApplet extends Applet.IconApplet {
                 return true;
             });
         } else if (!this._snapshot) this._collect(false, true);
+        // A idade da leitura é reavaliada mesmo com a coleta pausada — e a pausa é justamente
+        // quando nada mais reavalia: sem este laço, uma cota de uma hora atrás continuava "ok",
+        // mantinha o ícone vermelho e não recebia aviso de leitura antiga.
+        if (this._ageLoop) Mainloop.source_remove(this._ageLoop);
+        this._ageLoop = Mainloop.timeout_add_seconds(60, () => {
+            this._refreshIcon();
+            return true;
+        });
         this._refreshIcon();
     }
 
@@ -139,10 +148,33 @@ class AIUsageApplet extends Applet.IconApplet {
     }
 
     _quotas(services) {
-        return services.filter(s => s.status === 'ok').flatMap(s =>
+        const agora = Date.now();
+        return services.filter(s => s.status === 'ok' && !this._aged(s, agora)).flatMap(s =>
             (s.metrics || []).filter(m => m.kind === 'quota' && Number.isFinite(m.used_percent))
                 .map(m => ({service: s.label || s.id, metric: m})))
             .sort((a, b) => b.metric.used_percent - a.metric.used_percent);
+    }
+
+    // Limite de idade para exibir uma leitura como atual: o intervalo configurado mais um minuto,
+    // para o ciclo de coleta seguinte chegar sem a cor do ícone piscar a cada rodada.
+    _readingLimit() {
+        return (Math.max(30, this.collectInterval || 120) + 60) * 1000;
+    }
+
+    // Leitura vencida por tempo, mesmo com status ok: o applet não confia só no status, porque
+    // nada reavalia a idade quando a coleta está pausada.
+    _aged(service, agora) {
+        if (service.status !== 'ok') return false;
+        agora = agora || Date.now();
+        const quando = Date.parse(service.read_at);
+        if (!Number.isFinite(quando)) return true;   // ok sem horário não é dado em que confiar
+        return (agora - quando) > this._readingLimit();
+    }
+
+    _agedServices() {
+        const agora = Date.now();
+        const services = (this._snapshot && this._snapshot.services) || [];
+        return services.filter(s => s.status === 'stale' || this._aged(s, agora));
     }
 
     _paintIcon(highest) {
@@ -158,6 +190,7 @@ class AIUsageApplet extends Applet.IconApplet {
     _refreshIcon() {
         if (this._stopped) return;
         const services = this._snapshot ? this._snapshot.services : [];
+        const agora = Date.now();
         const quotas = this._quotas(services);
         const highest = quotas.length ? quotas[0].metric.used_percent : 0;
         this._paintIcon(highest);
@@ -172,7 +205,8 @@ class AIUsageApplet extends Applet.IconApplet {
             else if (money) detail = `${money.label}: ${money.value.toFixed(2).replace('.', ',')} ${money.currency || ''}`;
             else detail = {unconfigured: 'Não configurado', unavailable: 'Indisponível',
                           error: 'Falha na leitura'}[service.status] || 'Sem leitura';
-            if (metrics.length && service.status !== 'ok') detail += ' (leitura antiga)';
+            if (metrics.length && (service.status !== 'ok' || this._aged(service, agora)))
+                detail += ' (leitura antiga)';
             lines.push(`${service.label || service.id} — ${detail}`);
         }
         if (!services.length) lines.push('Aguardando a primeira leitura…');
@@ -186,7 +220,7 @@ class AIUsageApplet extends Applet.IconApplet {
         if (this._notice()) lines.push(this._notice());
         const comFalha = this._byStatus('error');
         if (comFalha.length) lines.push(`Falha na leitura: ${this._list(comFalha)}`);
-        const antigas = this._byStatus('stale');
+        const antigas = this._agedServices().map(s => s.label || s.id);
         if (antigas.length) lines.push(`Leitura antiga: ${this._list(antigas)}`);
         lines.push('\nClique: recentes · clique duplo: todos');
         this.set_applet_tooltip(lines.join('\n'));
@@ -246,7 +280,7 @@ class AIUsageApplet extends Applet.IconApplet {
         const comFalha = this._byStatus('error');
         if (comFalha.length) this._note(`Falha na leitura: ${this._list(comFalha)}`,
                                         'ai-usage-menu-error');
-        const antigas = this._byStatus('stale');
+        const antigas = this._agedServices().map(s => s.label || s.id);
         if (antigas.length) this._note(`Leitura antiga: ${this._list(antigas)}`);
         const recent = this._recent();
         if (!recent.length) this._note('Sem leitura ainda; use Atualizar ou Ver todos.');
@@ -330,7 +364,7 @@ class AIUsageApplet extends Applet.IconApplet {
 
     on_applet_removed_from_panel() {
         this._stopped = true;
-        for (const name of ['_click', '_loop', '_watchdog', '_killTimer']) {
+        for (const name of ['_click', '_loop', '_ageLoop', '_watchdog', '_killTimer']) {
             if (this[name]) Mainloop.source_remove(this[name]);
             this[name] = 0;
         }

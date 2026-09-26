@@ -11,7 +11,7 @@ Versão 0.2.0. Applet local para consultar cotas, gastos e saldos de serviços d
 
 O menu não muda de ordem enquanto estiver aberto. A janela usa o tema GTK do sistema, tem rolagem e separa os serviços sem leitura.
 
-Falha e leitura antiga aparecem nomeadas, separadas da cota: `Falha na leitura: Codex, Grok` em vermelho no menu e no balão, e `Leitura antiga: Antigravity` sem destaque — a cor do robô continua respondendo só a percentual de cota.
+Falha e leitura antiga aparecem nomeadas, separadas da cota: `Falha na leitura: Codex, Grok` em vermelho no menu e no balão, e `Leitura antiga: Antigravity` sem destaque — a cor do robô continua respondendo só a percentual de cota, e o applet confere a **idade** da leitura, não só o estado: uma cota de uma hora atrás não colore o ícone nem com a coleta pausada. Na janela, o aviso de leitura antiga diz o que aconteceu — intervalo vencido é diferente de atualização que falhou.
 
 O robô aparece no painel como ícone simbólico: em uso normal ele segue a cor do tema, fica **amarelo a partir de 70% usado** e **vermelho a partir de 90%**, considerando a maior porcentagem entre todas as janelas de todos os serviços com leitura válida. Saldos e gastos sem teto conhecido não acionam a cor; leituras antigas são identificadas no balão e excluídas do cálculo. O SVG está em `assets/robot-head-symbolic.svg` (fundo transparente, `fill:currentColor`).
 
@@ -25,8 +25,8 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 | OpenCode Go | Janela móvel, semanal e mensal | Consulta autenticada OK, três janelas |
 | Nous Portal | Saldo total, saldo do plano e recargas; renovação do plano | Consulta autenticada OK via login OAuth do Hermes |
 | DeepSeek | Saldo por moeda | Consulta autenticada OK |
-| OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; chave local sem limite |
-| Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: dois créditos e três modelos |
+| OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; sem teto na chave, nenhuma barra inventada |
+| Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: créditos do plano e modelos nomeados |
 | Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
 | Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada OK: janela corrente e semanal, com percentuais e horários de renovação |
 | Claude Code | Janela de 5 h e semanal da assinatura (e janelas por modelo, quando vierem) | **Não verificada**: sem conta Anthropic nesta máquina; rota e formato vêm da documentação pública da comunidade |
@@ -72,9 +72,9 @@ Para desinstalar, remova primeiro o applet do painel e apague somente o diretór
 
 ## Credenciais e configurações
 
-As preferências do Cinnamon não guardam segredos. Cada variável é procurada nesta ordem:
+As preferências do Cinnamon não guardam segredos. Cada credencial é procurada nesta ordem:
 
-1. **Cofre do sistema** (Secret Service / gnome-keyring) — é onde a janela **Credenciais…** grava o que a pessoa digita. Nada é exibido de volta: a janela só informa de onde o valor viria.
+1. **Cofre do sistema** (Secret Service / gnome-keyring) — é onde a janela **Credenciais…** grava o que a pessoa digita. O cofre vale para qualquer um dos nomes aceitos da credencial e vence o arquivo e o ambiente, de modo que salvar uma chave nova sempre substitui a que a coleta vinha usando. Nada é exibido de volta: a janela só informa de onde o valor viria.
 2. **Arquivo indicado por você** em `config.json`, na chave `credentials_path`, no formato `NOME=VALOR` — qualquer caminho (`~/.env`, `~/.config/secrets.env`, o que você usar). O arquivo é lido sem shell: `$(...)` e crases ficam literais. Sem aspas, o valor vale exatamente como está escrito — `KEY=sk-abc#def` guarda `sk-abc#def`, porque `#` só começa comentário depois de espaço. Com aspas, valem as regras do shell, inclusive escape (`KEY="com # dentro"`, `KEY="aspa\"dupla"`). Linha sem `=` ou com aspas não fechadas é ignorada — e a janela de credenciais lista quais foram ignoradas e por quê, para “não configurado” nunca aparecer sem causa.
 3. **Variáveis de ambiente** do processo.
 
@@ -116,7 +116,7 @@ A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `us
 Duas coisas que você deve saber antes de habilitar:
 
 - A chamada **emite credencial**, e não apenas lê. Verificamos em 26/09/2026 que ela é **idempotente**: devolve exatamente a mesma `api_key` que o cliente já guarda, sem tocar no `auth.json`. Nada foi rotacionado e o CLI continuou funcionando.
-- Mesmo assim o applet consulta no máximo a cada 15 minutos (`meta.min_interval_seconds`), guarda a última leitura em cache privado e mostra o horário real dela. Entre uma consulta e outra a linha aparece como leitura antiga, com o aviso — é intencional: preferimos um dado velho identificado a martelar uma rota sem documentação de limite.
+- Mesmo assim o applet consulta no máximo a cada 15 minutos (`meta.min_interval_seconds`), guarda a última leitura em cache privado e mostra o horário real dela. Entre uma consulta e outra a linha aparece como leitura antiga, com o aviso — é intencional: preferimos um dado velho identificado a martelar uma rota sem documentação de limite. O intervalo conta a última **tentativa**: depois de uma falha (um HTTP 429, por exemplo) a próxima consulta espera o intervalo em vez de repetir a chamada, e sem leitura a reaproveitar o serviço fica `unavailable` com "Consulta adiada".
 
 A linha mostra percentual das duas janelas. Não há gasto em dólar para este serviço: a API de modelos não publica preços, e inventar denominador é justamente o que este projeto evita.
 
@@ -145,7 +145,7 @@ O que o conector **não** faz, e por quê:
 
 Na linha aparecem `five_hour` (ou `kind: session`) como **Janela de 5 h**, `seven_day` (ou `weekly_all`) como **Semana** e `weekly_scoped` como **Semana · <modelo>**. Entrada de tipo desconhecido é ignorada — nunca vira zero —, e sem nenhuma janela reconhecida o serviço fica em `unavailable`.
 
-A rota é consultada no máximo a cada 5 minutos (`claude.min_interval_seconds`), com cache privado; entre uma consulta e outra a linha aparece como leitura antiga, com o horário real. O arquivo de login é procurado em `token_files.claude`, depois em `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim em `~/.claude/.credentials.json` — a ordem publicada pela Anthropic para quem roda mais de uma conta. No macOS o login fica no Keychain e não é lido daqui.
+A rota é consultada no máximo a cada 5 minutos (`claude.min_interval_seconds`), com cache privado; entre uma consulta e outra a linha aparece como leitura antiga, com o horário real — e, como no conector da Meta, uma tentativa que falhou também segura o intervalo. O arquivo de login é procurado em `token_files.claude`, depois em `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim em `~/.claude/.credentials.json` — a ordem publicada pela Anthropic para quem roda mais de uma conta. No macOS o login fica no Keychain e não é lido daqui.
 
 Isto serve a quem tem assinatura **Pro, Max, Team ou Enterprise**: quem usa só chave de API não tem essas janelas, e o serviço aparece sem leitura.
 

@@ -80,15 +80,16 @@ assert.equal(applet._error, null); // Gio tuple decoded, not treated as a string
 assert(applet.iconPath.endsWith('/assets/robot-head-symbolic.svg'));
 assert(applet.symbolic); // Ícone simbólico herda a cor do tema.
 for (const [percent, color] of [[69.9, null], [70, '#e5a50a'], [89.9, '#e5a50a'], [90, '#e01b24']]) {
+    const agora = new Date().toISOString();
     applet._snapshot.services = [
-        {id: 'codex', label: 'Codex', status: 'ok', metrics: [
+        {id: 'codex', label: 'Codex', status: 'ok', read_at: agora, metrics: [
             {kind: 'quota', label: 'Semana', used_percent: percent},
             {kind: 'quota', label: '5 h', used_percent: 10},
         ]},
         {id: 'old', label: 'Antigo', status: 'stale', metrics: [
             {kind: 'quota', label: 'Semana', used_percent: 100},
         ]},
-        {id: 'cash', label: 'Saldo', status: 'ok', metrics: [
+        {id: 'cash', label: 'Saldo', status: 'ok', read_at: agora, metrics: [
             {kind: 'balance', label: 'Disponível', value: 999, currency: 'USD'},
         ]},
     ];
@@ -184,6 +185,37 @@ applet._refreshIcon();
 assert(applet.tooltip.includes('Falha na leitura: Codex'));
 assert(applet.tooltip.includes('Leitura antiga: Grok / xAI'));
 assert(!/serviço\(s\) com falha/.test(applet.tooltip), 'o balão não deve mais agregar sem nomear');
+// Leitura antiga com status ok não colore o robô: o applet confere a idade, não só o status.
+const vencida = {id: 'meta', label: 'Meta', status: 'ok',
+    read_at: new Date(Date.now() - 3600000).toISOString(),
+    metrics: [{kind: 'quota', label: 'Janela', used_percent: 99}]};
+assert.equal(applet._aged(vencida), true);
+assert.equal(applet._aged({status: 'ok', read_at: new Date(Date.now() - 60000).toISOString()}), false);
+applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(), services: [vencida]};
+applet._refreshIcon();
+assert.equal(applet._applet_icon.style, null); // uma hora de idade não mantém o ícone vermelho
+assert(applet.tooltip.includes('(leitura antiga)'));
+assert(applet.tooltip.includes('Leitura antiga: Meta'));
+applet._renderMenu();
+assert(applet.menu.items.some(i => i.label && i.label.text === 'Leitura antiga: Meta'));
+// Pausar a coleta não congela o estado: o laço de idade continua reavaliando o que está na tela.
+applet.collectEnabled = false;
+applet._configure();
+assert(applet._ageLoop, 'pausar precisa manter a reavaliação da idade');
+assert(!applet._loop, 'com a coleta pausada não há laço de coleta');
+applet._snapshot = {schema_version: 1, generated_at: new Date().toISOString(),
+    services: [{id: 'meta', label: 'Meta', status: 'ok', read_at: new Date().toISOString(),
+                metrics: [{kind: 'quota', label: 'Janela', used_percent: 95}]}]};
+applet._refreshIcon();
+assert(applet._applet_icon.style.includes('#e01b24')); // leitura de agora: alerta continua
+const reavaliar = timers.get(applet._ageLoop);
+const consultas = subprocesses.length;
+applet._snapshot.services[0].read_at = new Date(Date.now() - 3600000).toISOString();
+reavaliar(); // é isto que o laço de 60 s faz, sem consultar serviço nenhum
+assert.equal(applet._applet_icon.style, null);
+assert(applet.tooltip.includes('Leitura antiga: Meta'));
+assert.equal(subprocesses.length, consultas); // reavaliar idade não dispara consulta
+applet.collectEnabled = true;
 applet.on_applet_clicked();
 applet.on_applet_removed_from_panel();
 assert.equal(timers.size, 0);

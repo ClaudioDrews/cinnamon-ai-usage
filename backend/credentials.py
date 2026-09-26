@@ -261,10 +261,20 @@ def resolve(names, config=None):
 
 
 def service_value(service, config=None):
-    """Primeiro valor disponível entre as variáveis do serviço, ou None."""
+    """Primeiro valor disponível entre as variáveis do serviço, ou None.
+
+    O cofre vem antes, em **qualquer** um dos nomes aceitos: quem digitou a chave na janela de
+    Credenciais espera que ela valha, e não que um alias antigo do arquivo ou do ambiente vença.
+    Antes, salvar ``XAI_MANAGEMENT_KEY`` não substituía a ``XAI_MANAGEMENT_API_KEY`` que o
+    backend preferia — a interface dizia "guardado no cofre" e a coleta usava a chave velha.
+    """
     names = SERVICE_KEYS.get(service, ())
     if not names:
         return None
+    for name in names:
+        value = keyring_get(name)
+        if value:
+            return value
     values = resolve(names, config)
     for name in names:
         if values.get(name):

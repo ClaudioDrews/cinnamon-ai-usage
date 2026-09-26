@@ -32,6 +32,10 @@ COLLECT_TIMEOUT_SECONDS = 50  # timeout global de coleta (contrato)
 UI_WATCHDOG_SECONDS = 60  # watchdog da interface (contrato)
 
 BACKEND_DIR = Path(__file__).resolve().parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+import collector  # noqa: E402  (mesma pasta: aviso de leitura antiga, junto do contrato)
+
 COLLECTOR_PATH = BACKEND_DIR / COLLECTOR_NAME
 CREDENTIALS_WINDOW = BACKEND_DIR / "credentials_window.py"
 ICON_PATH = BACKEND_DIR.parent / "assets" / "robot-head-symbolic.svg"
@@ -665,12 +669,11 @@ class UsageWindow(Gtk.ApplicationWindow):
         self._add_line(details, recency_text(service), dim=True)
 
         if (service.get("status") or "").strip().lower() == "stale":
-            # Leitura anterior preservada após falha: aviso visível, valor mantido.
+            # Leitura anterior preservada: o texto segue o motivo real (vencimento de intervalo
+            # não é falha). A decisão mora no coletor, junto do contrato, e tem teste próprio.
             warning = Gtk.Label(xalign=0)
             warning.set_line_wrap(True)
-            warning.set_text(
-                "Dados da leitura anterior: a atualização mais recente deste serviço falhou."
-            )
+            warning.set_text(collector.stale_warning(service))
             box.pack_start(warning, False, False, 0)
 
         message = service.get("message")
