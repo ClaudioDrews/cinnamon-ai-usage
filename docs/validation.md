@@ -270,8 +270,10 @@ fixed.
   presentation composes and formats: `i18n.arg_text()` in the backend and `_argValue()` in the
   panel read the same language table, and the clauses of the note are joined with the space
   that separates the block from the sentence. The origin travels as `source_id` +
-  `source_args` next to `source`, and both windows resolve it through `Source: {source}`. The
-  same snapshot answers in both languages, with nothing re-collected and nothing discarded:
+  `source_args` next to `source`, and both windows resolve it through `Source: {source}` — the
+  fresh collection return of Meta and Claude, however, was still leaving `source_id` empty at
+  this point, which the review below reproduces and `3cc2564` fixes. The same snapshot answers
+  in both languages, with nothing re-collected and nothing discarded:
   the saved text stays as the fallback for whoever has no catalog, and a snapshot written by
   an earlier version keeps showing what it saved.
 - **The technical identifier of Antigravity followed the language.** With no model name,
@@ -281,8 +283,12 @@ fixed.
   to 40% visible in Portuguese and invisible after switching to English. The id now comes from
   the raw data of the reading — the model id in the response, or the position of the model in
   the answer when there is no name at all — and `id_aliases` carries the ids an earlier version
-  wrote from the translated label, so the first collection after the fix still compares against
-  the history already on disk. Nothing was renamed: a named model keeps its `model:<name>` id.
+  wrote from the label, so the first collection after the fix still compares against the history
+  already on disk — the label translated from the catalog when the model has no name, and the
+  label fields of the response when it has one, since the service's own label is data. **The
+  named model is the case this paragraph got wrong until the review of `c78dc9f`**: it had also
+  changed id, and the alias for the id the earlier version wrote from its label came only in the
+  round of `3cc2564` (below).
 - **The test of the reused note reproduced the defect in its own expectation**, comparing the
   output with the same `args` already translated. It now walks Portuguese → English →
   Portuguese over a **single** record, built once with a fractional window, a plan, a
@@ -314,7 +320,93 @@ window, English), `docs/demo.pt-BR.png` (usage window, pt_BR),
 `tests/smoke_gtk_credentials.py`, which activate the language as the product does and refuse to
 write a capture when the resolved language does not show up in the widgets. The dumps of the
 round and their index are in `docs/evidence/` (`README.md`, `text-*.json`,
-`texts-credentials-*.json`). Nothing was installed, activated or reloaded in the panel.
+`texts-credentials-*.json`). The three dumps and the two captures of the credentials window were
+regenerated later inside the isolation of `tests/isolation.py` (round of `5489134`, below): the
+harnesses at this point pointed only `XDG_CONFIG_HOME`/`XDG_CACHE_HOME` at a temporary directory
+and left the keyring, the credential variables, the login files, the local binaries and the
+process table reachable — the versioned dump itself recorded Codex as `ok` in the section with
+no configuration. The pt_BR before/after stays byte-identical with both sides isolated. Nothing
+was installed, activated or reloaded in the panel.
+
+## Review of `c78dc9f` and `3e4762e`: origin, named-model id and the isolation of the evidence (26/09/2026)
+
+A review of the internationalization delivery, and of the fixes that came after it,
+reproduced two functional defects the suite passed over and one defect in the evidence
+harnesses themselves, which claimed an isolation they did not have. The three are fixed in
+`3cc2564` and `5489134`, the commits of this round.
+
+- **The fresh collection of Meta and Claude returned the origin without `source_id`.** Both
+  connectors built the identifier of the origin (`Muse Code · Meta subscription`, `Claude
+  Code · subscription (not verified)`) and handed it to `service()` in the **text** field
+  (`source=source`): the record left with the translated text and no `source_id`, and the
+  presenter resolves the origin through the identifier (`Source: {source}` in both windows),
+  so a reading collected in Portuguese showed the raw msgid in the presentation, in either
+  language. The reading reused from the private cache already went through `source_id`. Now
+  both connectors pass `source_id` to `service()`, which writes the translated text to
+  `source` and the msgid to `source_id`, and the two paths carry the same identifier.
+  Regression: `tests/test_backend.py::ProviderTests::test_meta_origin_travels_by_identifier_in_the_collection_and_in_the_reuse`
+  and `tests/test_backend.py::ClaudeTests::test_claude_origin_travels_by_identifier_in_the_collection_and_in_the_reuse`
+  — each one runs the collection in Portuguese against a simulated response and requires the
+  same `source_id` and the same `source` on the fresh reading and on the reused one (a single
+  call for the two). Both fail against `3e4762e`.
+- **A named Antigravity model lost the id the previous version had written.** With
+  `label="Display Model"` and `modelOrAlias.model="backend-model"`, `parse_antigravity()` had
+  stopped taking the id from the label — correctly, the raw datum is the stable one — but
+  declared no alias when a name existed. The reading the previous version had written as
+  `model:Display Model` stopped comparing with `model:backend-model`, and a quota rising from
+  20% to 40% passed in silence against the history already on disk.
+  `legacy_named_model_ids()` now puts the id the earlier version took from the label into
+  `id_aliases` — the label fields of the response (`label`, `modelLabel`), which are data of
+  the service and not translated text. Regression:
+  `tests/test_backend.py::HistoryTests::test_the_named_model_identifier_keeps_the_one_the_previous_version_saved`
+  reads a record in the previous format (id from the label, no alias), requires the new id to
+  come from the raw data with the old one in `id_aliases`, checks `merge_history` with
+  `recency_basis: observed_change`, and covers the model that only brings `modelLabel` and the
+  unnamed model, whose alias still comes from the catalog. It fails against `3e4762e`.
+- **The two evidence harnesses claimed an isolation they did not have.**
+  `tests/dump_visible_text.py` pointed only `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` at a
+  temporary directory and then called `providers.diagnose()` and `collector.collect(force=True)`
+  with the environment, the keyring, the login files and the `codex` installed on the machine
+  reachable — the versioned dump was the proof of the leak: it recorded Codex as `ok` in the
+  section that says "no configuration". `tests/smoke_gtk_credentials.py` built the real window
+  without replacing the queries to the keyring. `tests/isolation.py` (new) builds the isolation
+  instead of asserting it: an exclusive sandbox under `/tmp` with `HOME` and every `XDG_*` path
+  inside it and the credential variables out of the environment, and a fixture in the place of
+  the system keyring, the indicated file, the network, the local executables, the process table
+  and the worker process of the collection. `assert_clean()` fails the run that stops going
+  through a fixture or that reaches the network, the keyring, a local binary or a real process,
+  and the harness prints the summary of the isolation on stderr, so stdout stays byte-comparable;
+  the sandbox is removed at the end. The two seams the product gained for this are
+  `collector.worker` with `collector.launch_worker` and `providers.local_server_processes`; run
+  against a tree older than them, the harness reports the missing seam on stderr instead of
+  hiding it. New `tests/test_evidence_isolation.py` (8 tests): a dump produced with a poisoned
+  environment and a fake `codex` on the `PATH` comes out identical to the clean run, the guard
+  rejects a network query, a read outside the sandbox and a write to the keyring, a substitution
+  that was not exercised fails the run, every path the product resolves stays inside the sandbox,
+  and the report on stderr names what was substituted and which variables left the environment.
+
+The evidence was regenerated inside that isolation, and the files are committed: in the three
+dumps the only difference from the previous version is the Codex line, which was the leak; the
+before/after in pt_BR stays byte-identical, now with both sides isolated. The "before"
+(`docs/evidence/text-de3b6b7-pt_BR.json`) is produced by running the **current** harness against
+a tree of the old commit, inside the same fixtures:
+
+```
+$ mkdir <dir> && git archive de3b6b7 | tar -x -C <dir>
+$ LANGUAGE=pt_BR.UTF-8 python3 tests/dump_visible_text.py <dir> > docs/evidence/text-de3b6b7-pt_BR.json
+```
+
+The two captures of the credentials window were redone with the example file inside the sandbox,
+so the visible text changes only in the path shown; the texts dumps
+(`docs/evidence/texts-credentials-*.json`) reproduce except for the path of the sandbox, which is
+different in every run. The exact commands are in `docs/evidence/README.md`.
+
+Verification of this round: **242 offline Python tests in pt_BR, in English and in the default
+locale**, `node --check`, `compileall`, `sh scripts/i18n.sh` idempotent and no path of this
+machine in the repository. For this record the harnesses were rerun: the three dumps came out
+byte-identical to the committed ones (`cmp` empty), including the "before" regenerated against
+the tree of `de3b6b7`, and the two credentials texts match except for the path of the sandbox.
+Nothing was installed, activated or reloaded in the panel.
 
 ## Delegation and review
 
