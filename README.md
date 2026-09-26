@@ -116,7 +116,7 @@ A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `us
 Duas coisas que você deve saber antes de habilitar:
 
 - A chamada **emite credencial**, e não apenas lê. Verificamos em 26/09/2026 que ela é **idempotente**: devolve exatamente a mesma `api_key` que o cliente já guarda, sem tocar no `auth.json`. Nada foi rotacionado e o CLI continuou funcionando.
-- Mesmo assim o applet consulta no máximo a cada 15 minutos (`meta.min_interval_seconds`), guarda a última leitura em cache privado e mostra o horário real dela. Entre uma consulta e outra a linha aparece como leitura antiga, com o aviso — é intencional: preferimos um dado velho identificado a martelar uma rota sem documentação de limite. O intervalo conta a última **tentativa**: depois de uma falha (um HTTP 429, por exemplo) a próxima consulta espera o intervalo em vez de repetir a chamada, e sem leitura a reaproveitar o serviço fica `unavailable` com "Consulta adiada".
+- Mesmo assim o applet consulta no máximo a cada 15 minutos (`meta.min_interval_seconds`), guarda a última leitura em cache privado e mostra o horário real dela. Entre uma consulta e outra a linha aparece como leitura antiga, com o aviso — é intencional: preferimos um dado velho identificado a martelar uma rota sem documentação de limite. O intervalo conta a última **tentativa**: depois de uma falha (um HTTP 429, por exemplo) a próxima consulta espera o intervalo em vez de repetir a chamada; sem leitura a reaproveitar o serviço fica `unavailable` com "Consulta adiada", e com leitura anterior a linha continua marcada como falha, com a mensagem daquela tentativa — reaproveitar a leitura não apaga o que aconteceu, e só uma resposta nova devolve o serviço a `ok`.
 
 A linha mostra percentual das duas janelas. Não há gasto em dólar para este serviço: a API de modelos não publica preços, e inventar denominador é justamente o que este projeto evita.
 
@@ -145,7 +145,7 @@ O que o conector **não** faz, e por quê:
 
 Na linha aparecem `five_hour` (ou `kind: session`) como **Janela de 5 h**, `seven_day` (ou `weekly_all`) como **Semana** e `weekly_scoped` como **Semana · <modelo>**. Entrada de tipo desconhecido é ignorada — nunca vira zero —, e sem nenhuma janela reconhecida o serviço fica em `unavailable`.
 
-A rota é consultada no máximo a cada 5 minutos (`claude.min_interval_seconds`), com cache privado; entre uma consulta e outra a linha aparece como leitura antiga, com o horário real — e, como no conector da Meta, uma tentativa que falhou também segura o intervalo. O arquivo de login é procurado em `token_files.claude`, depois em `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim em `~/.claude/.credentials.json` — a ordem publicada pela Anthropic para quem roda mais de uma conta. No macOS o login fica no Keychain e não é lido daqui.
+A rota é consultada no máximo a cada 5 minutos (`claude.min_interval_seconds`), com cache privado; entre uma consulta e outra a linha aparece como leitura antiga, com o horário real — e, como no conector da Meta, uma tentativa que falhou também segura o intervalo e mantém o aviso de falha até o serviço responder de novo. O arquivo de login é procurado em `token_files.claude`, depois em `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim em `~/.claude/.credentials.json` — a ordem publicada pela Anthropic para quem roda mais de uma conta. No macOS o login fica no Keychain e não é lido daqui.
 
 Isto serve a quem tem assinatura **Pro, Max, Team ou Enterprise**: quem usa só chave de API não tem essas janelas, e o serviço aparece sem leitura.
 

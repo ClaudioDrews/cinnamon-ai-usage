@@ -137,7 +137,7 @@ Outra revisão do mesmo commit (`7616f6d`) apontou cinco problemas funcionais e 
 
 Sanitização, feita em seguida:
 
-- **Dados reais da conta saíram da documentação publicada:** percentuais de consumo das assinaturas, valor de recarga/saldo, horários de renovação, contagens da varredura de arquivos de sessão locais e identificadores de sessão dos agentes. Onde o número era o ponto (a convenção de sinal do saldo da xAI), o texto passa a explicar o mecanismo sem o valor da conta — no README, na validação e no `docstring` do conector; o comentário do teste também deixou de citar a resposta real.
+- **Dados reais da conta saíram da documentação publicada:** percentuais de consumo das assinaturas, valor de recarga/saldo, horários de renovação, contagens da varredura de arquivos de sessão locais e identificadores de sessão dos agentes. Onde o número era o ponto (a convenção de sinal do saldo da xAI), o texto passa a explicar o mecanismo sem o valor da conta — no README, na validação e no `docstring` do conector; o comentário do teste também deixou de citar a resposta real. Esta limpeza foi medida **só na árvore**: os commits anteriores continuavam carregando as versões com os números, e o histórico inteiro foi reescrito na terceira revisão, abaixo.
 - **Caminhos desta máquina no histórico Git:** o histórico antigo ainda guardava o caminho pessoal do autor em versões intermediárias de `README.md` e `AGENTS.md`. Como publicar o repositório publica o histórico, a reescrita substituiu esses caminhos por formas relativas em todos os commits, não só na árvore atual.
 - **`AGENTS.md`** dizia "não é publicado" e estava versionado: num push normal, subiria. O arquivo continua no disco para orientar quem trabalha aqui, mas ficou fora da árvore e do histórico.
 
