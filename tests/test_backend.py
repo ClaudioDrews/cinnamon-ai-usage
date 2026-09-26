@@ -296,6 +296,17 @@ class ProviderTests(unittest.TestCase):
                 {'read_at': '2026-09-26T00:00:00Z', 'identity': 'x', 'metrics': [{'id': 'janela'}]}))
             self.assertIsNone(p.meta_read_cache({}, 'x'))  # antiga: será consultada de novo
 
+    def test_meta_login_path_follows_the_client_order(self):
+        # Ordem lida no launcher do binário: token_files.meta > MUSE_AUTH_PATH > XDG.
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': '/xdg', 'MUSE_AUTH_PATH': '/custom/auth.json'},
+                        clear=False):
+            self.assertEqual(str(p.meta_login_path({})), '/custom/auth.json')
+            self.assertEqual(str(p.meta_login_path({'token_files': {'meta': '~/outro.json'}})),
+                             str(Path.home()/'outro.json'))
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': '/xdg'}, clear=False):
+            os.environ.pop('MUSE_AUTH_PATH', None)
+            self.assertEqual(str(p.meta_login_path({})), '/xdg/muse/auth.json')
+
     def test_meta_interval_has_floor_and_ceiling(self):
         self.assertEqual(p.meta_interval({}), 900)
         self.assertEqual(p.meta_interval({'meta': {'min_interval_seconds': 60}}), 300)

@@ -110,6 +110,19 @@ Duas coisas que você deve saber antes de habilitar:
 
 A linha mostra percentual das duas janelas. Não há gasto em dólar para este serviço: a API de modelos não publica preços, e inventar denominador é justamente o que este projeto evita.
 
+### Compatibilidade com versões do Muse Code
+
+Verificado com o Muse Code **1.4.0** (`1.4.0-R4161.1`) e `auth.json` em `schema_version` 1. O conector usa duas coisas:
+
+- O **arquivo de login**, procurado na mesma ordem que o próprio cliente resolve no seu launcher: `token_files.meta` na configuração do applet, depois `$MUSE_AUTH_PATH`, depois `$XDG_CONFIG_HOME/muse/auth.json` e, sem ele, `~/.config/muse/auth.json`. Basta existir um `access_token` em qualquer nível do JSON — quando o arquivo passou a agrupar por `providers.meta`, em 26/09/2026, a leitura continuou funcionando sem alteração.
+- A **rota** `POST https://api.meta.ai/muse-code/key`, com `subs_usage.window` e `subs_usage.weekly`.
+
+O conector não executa o binário do Muse Code — nem precisa que ele esteja instalado para ler o arquivo, nem que esteja em execução —, então a versão do CLI instalada não muda o comportamento do applet. O que depende de versão é o formato do arquivo e a rota.
+
+Quando a Meta mudar algo, o esperado é degradar e nunca inventar: arquivo ausente ou sem token → `unconfigured` (a mensagem pede `muse login`); resposta sem `subs_usage` → `unavailable`, com o último valor preservado; falha de rede → `error`, com o valor anterior marcado como leitura antiga. Nenhum desses casos vira 0%, e nenhum deles quebra o painel.
+
+Se você mantém mais de uma versão do Muse Code com logins em arquivos diferentes, aponte o do seu uso atual em `token_files.meta` (veja a configuração abaixo).
+
 Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.json`:
 
 ```json

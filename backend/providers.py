@@ -444,10 +444,17 @@ def antigravity(config=None):
 
 
 def meta_login_path(config=None):
-    """Arquivo de login do Muse Code, o mesmo que o CLI grava (como o auth.json do Codex)."""
+    """Arquivo de login do Muse Code, na mesma ordem que o próprio cliente usa.
+
+    O cliente resolve ``$MUSE_AUTH_PATH`` e, sem ele, ``$XDG_CONFIG_HOME/muse/auth.json`` ou
+    ``$HOME/.config/muse/auth.json`` (regra lida no script do launcher dentro do binário).
+    ``token_files.meta`` na configuração tem precedência sobre tudo.
+    """
     declared = ((config or {}).get("token_files") or {}).get("meta")
     if declared:
         return Path(os.path.expanduser(str(declared)))
+    if os.environ.get("MUSE_AUTH_PATH"):
+        return Path(os.path.expanduser(os.environ["MUSE_AUTH_PATH"]))
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home()/".config")
     return Path(base)/"muse"/"auth.json"
 
