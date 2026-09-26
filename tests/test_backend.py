@@ -321,6 +321,164 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result['metrics'], [])
 
 
+class ClaudeTests(unittest.TestCase):
+    """Conector do Claude Code: rotas, formas de resposta e degradação sem conta real."""
+
+    def _claude_tmp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return directory.name
+
+    def _claude_login(self, token='token-de-teste', expires_at=None):
+        path = Path(self._claude_tmp())/'.credentials.json'
+        path.write_text(json.dumps({'claudeAiOauth': {
+            'accessToken': token, 'refreshToken': 'nunca-deve-sair',
+            'expiresAt': expires_at if expires_at else int((time.time() + 3600) * 1000),
+            'subscriptionType': 'max', 'rateLimitTier': 'default_claude_max_5x'}}))
+        return str(path)
+
+    def _claude_payload(self, five=35.0, week=14.0):
+        return {'five_hour': {'utilization': five, 'resets_at': '2026-09-26T22:00:00+00:00'},
+                'seven_day': {'utilization': week, 'resets_at': '2026-10-02T20:00:00+00:00'},
+                'seven_day_sonnet': None, 'seven_day_opus': None,
+                'extra_usage': {'is_enabled': True, 'used_credits': 0.0},
+                'access_token': 'nunca-deve-sair'}
+
+    def _claude_limits_payload(self):
+        return {'limits': [
+            {'kind': 'session', 'percent': 35.0, 'resets_at': '2026-09-26T22:00:00+00:00'},
+            {'kind': 'weekly_all', 'percent': 14.0, 'resets_at': '2026-10-02T20:00:00+00:00'},
+            {'kind': 'weekly_scoped', 'percent': 39.0, 'scope': {'model': {'display_name': 'Sonnet'}}},
+            {'kind': 'weekly_scoped', 'percent': 10.0, 'scope': {'model': {}}},
+            {'kind': 'iguana_necktie', 'percent': 99.0}]}
+
+    def test_claude_flat_objects_give_the_two_windows(self):
+        got = p.parse_claude(self._claude_payload())
+        self.assertEqual([m['id'] for m in got], ['janela', 'semanal'])
+        self.assertEqual([m['label'] for m in got], ['Janela de 5 h', 'Semana'])
+        self.assertEqual([m['used_percent'] for m in got], [35.0, 14.0])
+        self.assertEqual([m['window_seconds'] for m in got], [18000, 604800])
+        self.assertTrue(all(m['kind'] == 'quota' for m in got))
+        self.assertEqual(got[0]['reset_at'], '2026-09-26T22:00:00Z')
+
+    def test_claude_structured_limits_are_read_and_unknown_kinds_ignored(self):
+        got = p.parse_claude(self._claude_limits_payload())
+        self.assertEqual([m['id'] for m in got], ['janela', 'semanal', 'semanal:Sonnet'])
+        self.assertEqual([m['used_percent'] for m in got], [35.0, 14.0, 39.0])
+        self.assertEqual(got[2]['label'], 'Semana · Sonnet')
+        self.assertNotIn('iguana_necktie', [m['id'] for m in got])  # sem janela nem modelo
+
+    def test_claude_missing_percent_is_not_zero(self):
+        self.assertEqual(p.parse_claude({}), [])
+        self.assertEqual(p.parse_claude({'five_hour': {'utilization': None}, 'seven_day': {}}), [])
+        self.assertEqual(p.parse_claude({'limits': [{'kind': 'session'}, 'nada', None]}), [])
+
+    def test_claude_percent_scale_is_used_as_reported_never_rescaled(self):
+        # A escala relatada é 0–100; multiplicar por 100 um valor fracionário inventaria uso.
+        self.assertEqual(p.parse_claude({'five_hour': {'utilization': 0.4}})[0]['used_percent'], 0.4)
+        self.assertEqual(p.parse_claude({'five_hour': {'utilization': 140}})[0]['used_percent'], 100)
+
+    def test_claude_login_path_follows_documented_order(self):
+        with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': '/contas/work'}, clear=False):
+            self.assertEqual(str(p.claude_login_path({})), '/contas/work/.credentials.json')
+            self.assertEqual(str(p.claude_login_path({'token_files': {'claude': '~/c.json'}})),
+                             str(Path.home()/'c.json'))
+            os.environ.pop('CLAUDE_CONFIG_DIR', None)
+            self.assertEqual(str(p.claude_login_path({})),
+                             str(Path.home()/'.claude'/'.credentials.json'))
+
+    def test_claude_without_login_is_unconfigured_and_does_not_call(self):
+        with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': self._claude_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            result = p.collect_provider('claude', {})
+        self.assertEqual(result['status'], 'unconfigured')
+        self.assertEqual(result['metrics'], [])
+        request.assert_not_called()
+
+    def test_claude_expired_token_warns_without_calling(self):
+        vencido = self._claude_login(expires_at=int((time.time() - 60) * 1000))
+        with patch.object(p, 'request') as request:
+            result = p.collect_provider('claude', {'token_files': {'claude': vencido}})
+        self.assertEqual(result['status'], 'unconfigured')
+        self.assertIn('expirado', result['message'])
+        request.assert_not_called()  # o applet não renova credencial
+
+    def test_claude_reads_the_usage_route_with_the_beta_header_and_no_body(self):
+        seen = {}
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._claude_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            request.side_effect = lambda url, token=None, **k: seen.update(
+                url=url, token=token, data=k.get('data'), headers=k.get('headers')) or self._claude_payload()
+            result = p.claude({'token_files': {'claude': self._claude_login()}})
+        self.assertEqual(seen['url'], p.CLAUDE_USAGE_URL)
+        self.assertEqual(seen['token'], 'token-de-teste')
+        self.assertEqual(seen['headers'], {'anthropic-beta': 'oauth-2025-04-20'})
+        self.assertIsNone(seen['data'])  # GET: nenhuma requisição de inferência
+        self.assertNotIn('messages', seen['url'])
+        self.assertEqual([m['used_percent'] for m in result['metrics']], [35.0, 14.0])
+        self.assertIn('não verificado', result['source'])
+
+    def test_claude_reuses_the_reading_and_the_cache_keeps_only_the_digest(self):
+        cache = self._claude_tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
+             patch.object(p, 'request') as request:
+            request.side_effect = lambda *a, **k: self._claude_payload()
+            config = {'token_files': {'claude': self._claude_login()}}
+            first = p.claude(config)
+            segunda = p.claude(config)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(segunda['read_at'], first['read_at'])
+        self.assertIn('reaproveitada', segunda['message'])
+        arquivo = Path(cache)/'cinnamon-ai-usage'/'claude.json'
+        self.assertEqual(stat.S_IMODE(arquivo.stat().st_mode), 0o600)
+        texto = arquivo.read_text()
+        self.assertIn(hashlib.sha256(b'token-de-teste').hexdigest(), texto)
+        self.assertNotIn('token-de-teste', texto)
+
+    def test_claude_interval_has_floor_and_ceiling(self):
+        self.assertEqual(p.claude_interval({}), 300)
+        self.assertEqual(p.claude_interval({'claude': {'min_interval_seconds': 10}}), 120)
+        self.assertEqual(p.claude_interval({'claude': {'min_interval_seconds': 1900}}), 1900)
+
+    def test_claude_unrecognized_response_asks_for_the_diagnostic(self):
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._claude_tmp()}, clear=False), \
+             patch.object(p, 'request', side_effect=lambda *a, **k: {'limits': [{'kind': 'novo'}]}):
+            result = p.collect_provider('claude', {'token_files': {'claude': self._claude_login()}})
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertIn('diag claude', result['message'])
+
+    def test_claude_http_failure_is_error_without_inventing_zero(self):
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._claude_tmp()}, clear=False), \
+             patch.object(p, 'request', side_effect=p.Unavailable('Credencial recusada.', 'error')):
+            result = p.collect_provider('claude', {'token_files': {'claude': self._claude_login()}})
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['metrics'], [])
+
+    def test_claude_note_never_leaks_credential_or_account(self):
+        nota = p.claude_message(self._claude_payload(), {'subscriptionType': 'max'})
+        self.assertNotIn('nunca-deve-sair', nota)
+        self.assertIn('Plano: max', nota)
+
+    def test_claude_diagnostic_reports_structure_without_values(self):
+        login = self._claude_login()
+        with patch.object(p, 'request', side_effect=lambda *a, **k: self._claude_payload()):
+            report = p.claude_diag({'token_files': {'claude': login}})
+        texto = json.dumps(report, ensure_ascii=False)
+        self.assertEqual(report['consulta'], 'ok')
+        self.assertEqual(report['credencial'], 'encontrada')
+        self.assertEqual(report['janelas_reconhecidas'], ['janela', 'semanal'])
+        self.assertIn('número entre 1 e 100', texto)  # faixa, não o valor
+        self.assertNotIn('nunca-deve-sair', texto)
+        self.assertNotIn('35', texto)
+        self.assertNotIn(login, texto)  # nenhum caminho da máquina
+        self.assertEqual(report['campos_do_login'],
+                         ['accessToken', 'expiresAt', 'rateLimitTier', 'refreshToken', 'subscriptionType'])
+
+    def test_diagnose_is_absent_for_services_without_one(self):
+        self.assertEqual(p.diagnose('deepseek', {}),
+                         {'diagnostico': 'não há diagnóstico para este serviço'})
+
+
 class HistoryTests(unittest.TestCase):
     def setUp(self):
         self.old = p.service('codex', metrics=[p.metric('a', 'Quota', 'quota', percent=20,

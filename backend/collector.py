@@ -15,7 +15,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 
-from providers import SERVICES, collect_provider, number, service, stamp, metric, read_json
+from providers import SERVICES, collect_provider, diagnose, number, service, stamp, metric, read_json
 
 
 def paths():
@@ -164,7 +164,7 @@ def demo():
             metrics = [metric("balance", "Saldo disponível", "balance", value=12.4+i, currency="USD")]
         elif id_ == "openrouter":
             metrics = [metric("usage_monthly", "Gasto no mês", "spend", value=4.02, currency="USD")]
-        elif id_ == "meta":
+        elif id_ in ("meta", "claude"):
             metrics = [metric("janela", "Janela de 5 h", "quota", percent=12, window=18000,
                               reset=time.time()+3600),
                        metric("semanal", "Semana", "quota", percent=45, window=604800,
@@ -188,7 +188,8 @@ def public(snapshot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", default="collect", choices=["collect", "read", "demo", "worker"])
+    parser.add_argument("command", nargs="?", default="collect",
+                        choices=["collect", "read", "demo", "worker", "diag"])
     parser.add_argument("provider", nargs="?", choices=list(SERVICES))
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--ttl", type=int, help="TTL desta consulta, em segundos")
@@ -201,6 +202,9 @@ def main():
         signal.signal(signal.SIGTERM, timed_out)
         signal.alarm(30)
         result = collect_provider(args.provider, read_json(paths()[1]))
+    elif args.command == "diag":
+        if not args.provider: parser.error("diag exige um provedor")
+        result = diagnose(args.provider, read_json(paths()[1]))
     elif args.command == "demo":
         result = demo()
     elif args.command == "read":

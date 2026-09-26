@@ -1,8 +1,8 @@
 # Contrato v1
 
-Coletor: `python3 backend/collector.py collect [--force]`; imprime apenas JSON UTF-8. Sem argumentos usa collect. `read` devolve cache sem rede; `demo` devolve dados sintéticos SEM escrever cache. Janela: `python3 backend/window.py [--demo]`. Tudo funciona na árvore fonte e instalado: backend/ ao lado de applet/ na fonte; instalado o backend/ fica dentro do diretório do applet. Applet localiza backend/ dentro de metadata.path; instalação copia.
+Coletor: `python3 backend/collector.py collect [--force]`; imprime apenas JSON UTF-8. Sem argumentos usa collect. `read` devolve cache sem rede; `demo` devolve dados sintéticos SEM escrever cache. `worker ID` consulta um provedor só; `diag ID` devolve, para os serviços que o declarem, a estrutura da resposta em nomes de campos, tipos e faixas de números — nunca valores nem credenciais. Janela: `python3 backend/window.py [--demo]`. Tudo funciona na árvore fonte e instalado: backend/ ao lado de applet/ na fonte; instalado o backend/ fica dentro do diretório do applet. Applet localiza backend/ dentro de metadata.path; instalação copia.
 
-Configuração não secreta: ~/.config/cinnamon-ai-usage/config.json. Cache privado: ~/.cache/cinnamon-ai-usage/snapshot.json. TTL padrão 120 segundos. IDs: codex, antigravity, grok, nous, opencode, deepseek, openrouter, meta.
+Configuração não secreta: ~/.config/cinnamon-ai-usage/config.json. Cache privado: ~/.cache/cinnamon-ai-usage/snapshot.json. TTL padrão 120 segundos. IDs: codex, claude, antigravity, grok, nous, opencode, deepseek, openrouter, meta.
 
 Saída exemplo (nenhum segredo):
 ```json
@@ -30,6 +30,18 @@ O id `meta` lê a assinatura do aplicativo Muse Code — janela corrente (`windo
 Como não há documentação de limite de uso, o conector impõe intervalo mínimo próprio: `meta.min_interval_seconds`, padrão 900 s, aceitando de 300 s a 24 h. Dentro do intervalo não há nova chamada: a leitura anterior é reaproveitada do cache privado `~/.cache/cinnamon-ai-usage/meta.json` (0600, só o digest da conta, nunca o token) e mantém o `read_at` real, de modo que o serviço aparece como leitura antiga quando passa o TTL. Falha de rede ou resposta sem percentual não viram zero: o serviço fica `error`/`unavailable` e o valor anterior é preservado.
 
 O percentual é inteiro e a Meta avisa que pode passar de 100: a barra vai até 100 e a nota do serviço informa o número relatado. Não há métrica de gasto em dólar para este serviço — a API de modelos não publica preço, e contagem de tokens sem preço não cabe neste contrato.
+
+## Claude Code
+
+O id `claude` lê as janelas da assinatura do Claude Code pela rota de leitura `GET https://api.anthropic.com/api/oauth/usage`, com o token do login e `anthropic-beta: oauth-2025-04-20` — a mesma rota que a própria CLI usa no `/usage`. Nada de inferência: o conector **não** usa `/v1/messages` nem qualquer requisição que consuma a cota exibida, e nunca renova credencial. O token vence em cerca de uma hora e quem o renova é a CLI; vencido, o serviço fica `unconfigured` com o aviso de rodar `claude` novamente.
+
+O login é procurado em `token_files.claude`, depois `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim `~/.claude/.credentials.json` (nessa ordem; o Keychain do macOS não é lido). Basta um `accessToken` em qualquer nível do JSON. Sem token, nenhuma chamada é feita.
+
+O percentual é usado como relatado, na escala 0–100, sem heurística de multiplicar por 100 um valor pequeno. `five_hour` e `kind: session` viram "Janela de 5 h"; `seven_day` e `weekly_all` viram "Semana"; `weekly_scoped` vira "Semana · <modelo>". Tipo desconhecido é ignorado e resposta sem nenhuma janela reconhecida fica `unavailable`, com a sugestão de rodar `diag claude` — nunca zero.
+
+Intervalo mínimo próprio de `claude.min_interval_seconds`, padrão 300 s (de 120 s a 24 h), com cache privado `~/.cache/cinnamon-ai-usage/claude.json` (0600, só o digest da conta, nunca o token) e `read_at` real: dentro do intervalo a leitura aparece como antiga pelo horário dela.
+
+Verificação declarada: implementado e coberto por testes offline contra o formato documentado pela comunidade, **sem verificação em conta real**, por não haver conta Anthropic na máquina do autor. A rota é declarada pela comunidade, não pela Anthropic, e pode mudar; quando mudar, o resultado é indisponibilidade, não número inventado.
 
 ## Detalhes de implementação
 

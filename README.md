@@ -27,8 +27,9 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 | Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: dois créditos e três modelos |
 | Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
 | Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada OK: janela corrente e semanal, com percentuais e horários de renovação |
+| Claude Code | Janela de 5 h e semanal da assinatura (e janelas por modelo, quando vierem) | **Não verificada**: sem conta Anthropic nesta máquina; rota e formato vêm da documentação pública da comunidade |
 
-O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta.
+O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta. O conector do Claude Code é o único publicado **sem verificação em conta real** — está implementado, testado contra o formato documentado e rotulado como não verificado; a seção dele explica o que falta e como relatar.
 
 [Prévia da janela com dados fictícios](docs/demo.png)
 
@@ -44,6 +45,7 @@ python3 backend/credentials_window.py  # chaves no cofre e caminhos de arquivo
 python3 backend/collector.py collect
 python3 backend/collector.py read  # cache, sem consultas de rede
 python3 backend/collector.py worker <serviço>  # testa um provedor só
+python3 backend/collector.py diag <serviço>    # nomes de campos e faixas, sem valores
 ```
 
 Demo não lê credenciais nem altera o cache. A coleta real não faz inferência, compras, recargas ou mudanças de plano.
@@ -97,7 +99,7 @@ Quando houver consumo de crédito pré-pago, a segunda linha do serviço mostra 
 
 A management key é uma credencial poderosa: ela cria e revoga chaves de API e mexe em cobrança. Guarde-a no cofre, não em arquivo versionado.
 
-Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, e o Muse Code usa o dele (`muse login`) em `~/.config/muse/auth.json`; nenhum dos dois aparece na janela de credenciais, porque o arquivo é encontrado pelo caminho padrão do próprio aplicativo. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
+Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, o Muse Code usa o dele (`muse login`) em `~/.config/muse/auth.json` e o Claude Code usa o do `claude /login` em `~/.claude/.credentials.json`; nenhum dos três aparece na janela de credenciais, porque o arquivo é encontrado pelo caminho padrão do próprio aplicativo. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
 
 ### Assinatura do Muse Code (Meta)
 
@@ -123,6 +125,36 @@ Quando a Meta mudar algo, o esperado é degradar e nunca inventar: arquivo ausen
 
 Se você mantém mais de uma versão do Muse Code com logins em arquivos diferentes, aponte o do seu uso atual em `token_files.meta` (veja a configuração abaixo).
 
+### Assinatura do Claude Code
+
+As janelas da assinatura do Claude Code vêm de `GET https://api.anthropic.com/api/oauth/usage`, com `Authorization: Bearer <token do login>` e `anthropic-beta: oauth-2025-04-20`. É a mesma rota que a CLI usa no comando `/usage` e que os projetos de acompanhamento da CLI documentaram; a Anthropic não a publica como API, então ela é tratada como algo que pode mudar.
+
+O que o conector **não** faz, e por quê:
+
+- **Não faz requisição de inferência.** O rascunho que originou este conector pedia uma resposta em `/v1/messages`, com `max_tokens: 1`, só para ler os cabeçalhos `anthropic-ratelimit-unified-*`. Cada consulta consumiria um pouco da cota que o applet exibe: num applet que atualiza a cada dois minutos, seria o monitor comendo o que monitora. A rota de leitura devolve as duas janelas em JSON, sem custo de cota.
+- **Não renova nem grava credencial.** O token do Claude Code vale cerca de uma hora e é a própria CLI que o renova. Com token vencido o serviço fica em `unconfigured` com o aviso "rode `claude` para renovar" — o applet não toca no `refreshToken`.
+- **Não adivinha escala.** O percentual é usado como veio, na escala 0–100: nada de multiplicar por 100 quando o valor parece pequeno, o que transformaria 0,4% em 40%.
+
+Na linha aparecem `five_hour` (ou `kind: session`) como **Janela de 5 h**, `seven_day` (ou `weekly_all`) como **Semana** e `weekly_scoped` como **Semana · <modelo>**. Entrada de tipo desconhecido é ignorada — nunca vira zero —, e sem nenhuma janela reconhecida o serviço fica em `unavailable`.
+
+A rota é consultada no máximo a cada 5 minutos (`claude.min_interval_seconds`), com cache privado; entre uma consulta e outra a linha aparece como leitura antiga, com o horário real. O arquivo de login é procurado em `token_files.claude`, depois em `$CLAUDE_CONFIG_DIR/.credentials.json` e por fim em `~/.claude/.credentials.json` — a ordem publicada pela Anthropic para quem roda mais de uma conta. No macOS o login fica no Keychain e não é lido daqui.
+
+Isto serve a quem tem assinatura **Pro, Max, Team ou Enterprise**: quem usa só chave de API não tem essas janelas, e o serviço aparece sem leitura.
+
+**O que ainda não foi verificado** — não há conta Anthropic nesta máquina:
+
+- se a rota aceita `Bearer` com o token do login (a sondagem com token inválido devolveu 401 e o corpo reclamou de `x-api-key`, o que só um token real esclarece);
+- se o `.credentials.json` atual mantém `claudeAiOauth.accessToken`, e se o pedido precisa de outro `anthropic-beta`;
+- se o percentual vem mesmo em 0–100, premissa da decisão de não rescalar.
+
+Se você tem conta e o serviço não mostrar nada, relate no GitHub com a saída de:
+
+```bash
+python3 backend/collector.py diag claude
+```
+
+Esse relatório traz só **nomes de campos, tipos, faixa dos números** e quais janelas o conector reconheceu: nenhum valor, nenhum caminho da sua máquina e nenhum pedaço de credencial. É o que um PR precisa para ajustar o parser.
+
 Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.json`:
 
 ```json
@@ -132,11 +164,12 @@ Configuração opcional **sem segredos** em `~/.config/cinnamon-ai-usage/config.
   "token_files": {"nous": "~/.local/share/meu-login/auth.json"},
   "enabled": {"grok": false},
   "grok": {"team_id": "SEU_TEAM_ID"},
-  "meta": {"min_interval_seconds": 900}
+  "meta": {"min_interval_seconds": 900},
+  "claude": {"min_interval_seconds": 300}
 }
 ```
 
-`token_files.meta` só é necessário se o login do Muse Code estiver fora do caminho padrão (`~/.config/muse/auth.json`).
+`token_files.meta` só é necessário se o login do Muse Code estiver fora do caminho padrão (`~/.config/muse/auth.json`). `token_files.claude` só é necessário se o login do Claude Code estiver fora de `$CLAUDE_CONFIG_DIR` e de `~/.claude/.credentials.json`.
 
 A gravação do arquivo é atômica e em modo 0600. O intervalo selecionado no applet vale para suas consultas. A janela independente usa o TTL do arquivo acima (120 segundos se ausente). O botão Atualizar força a coleta em ambos. Desativar um provedor no arquivo o remove das próximas coletas; uma alteração pode aguardar o TTL ou Atualizar.
 
@@ -166,5 +199,7 @@ python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requer sessão gráfica
 Os testes offline cobrem parsers, ausência versus zero, renovação, recência, troca de conta, falha preservando cache e isolamento de segredos. O teste JS simula o ambiente do applet para conferir cliques, timers, coleta e limite de cinco; não substitui a validação no painel real. O teste GTK abre e fecha uma janela de demonstração.
 
 Arquitetura e formato: [docs/contract.md](docs/contract.md). Evidências, fontes e limitações: [docs/validation.md](docs/validation.md).
+
+Para acrescentar um serviço: implemente o conector em `backend/providers.py` conforme as regras do contrato — somente leitura, sem inferência, sem renovar credencial e degradando em vez de inventar zero; registre o id em `SERVICES`; cubra o parser com fixtures em `tests/test_backend.py`; e diga no README o que foi verificado e o que não foi. Um PR é bem mais fácil de aceitar com a saída sem segredos de `python3 backend/collector.py worker <serviço>` (ou `diag <serviço>`, quando existir) no corpo.
 
 Referência de projeto: [omarchy-ai-usage](https://github.com/rodrigo-sntg/omarchy-ai-usage), de Rodrigo Santiago, licença MIT. Esta implementação usa um contrato próprio para preservar janelas e modelos distintos.

@@ -20,10 +20,19 @@ from urllib.error import HTTPError, URLError
 import credentials
 
 SERVICES = {
-    "codex": "Codex", "antigravity": "Antigravity", "grok": "Grok / xAI",
-    "nous": "Nous Portal", "opencode": "OpenCode Go", "deepseek": "DeepSeek",
-    "openrouter": "OpenRouter", "meta": "Meta AI (Muse Code)",
+    "codex": "Codex", "claude": "Claude Code", "antigravity": "Antigravity",
+    "grok": "Grok / xAI", "nous": "Nous Portal", "opencode": "OpenCode Go",
+    "deepseek": "DeepSeek", "openrouter": "OpenRouter", "meta": "Meta AI (Muse Code)",
 }
+
+# A assinatura do Claude Code é lida por uma rota de leitura (GET /api/oauth/usage), a mesma
+# que a própria CLI usa no comando /usage. Nada aqui é inferência: o rascunho que pedia uma
+# resposta em /v1/messages apenas para raspar cabeçalhos de limite consumiria a cota que o
+# applet exibe, e por isso foi recusado. A rota não é documentada pela Anthropic, então o
+# conector impõe intervalo mínimo próprio e degrada em vez de adivinhar.
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CLAUDE_BETA = "oauth-2025-04-20"
+CLAUDE_MIN_INTERVAL = 300
 
 # A assinatura da Meta só é legível pela chamada que emite credencial do Muse Code; ela é
 # idempotente (verificado em 26/09/2026: mesma api_key devolvida e auth.json intacto), mas
@@ -465,14 +474,14 @@ def meta_interval(config=None):
     return max(300, min(86400, value)) if value else META_MIN_INTERVAL
 
 
-def meta_cache_path():
+def quota_cache_path(name):
     cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home()/".cache")
-    return Path(cache)/"cinnamon-ai-usage"/"meta.json"
+    return Path(cache)/"cinnamon-ai-usage"/f"{name}.json"
 
 
-def meta_read_cache(config, identity):
-    """Leitura anterior da assinatura, se for da mesma conta e ainda válida."""
-    data = read_json(meta_cache_path())
+def quota_read_cache(name, interval, identity):
+    """Leitura anterior do serviço, se for da mesma conta e ainda válida."""
+    data = read_json(quota_cache_path(name))
     if not isinstance(data, dict) or data.get("identity") != identity:
         return None
     metrics, read_at = data.get("metrics"), data.get("read_at")
@@ -482,25 +491,37 @@ def meta_read_cache(config, identity):
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(read_at.replace("Z", "+00:00")))
     except ValueError:
         return None
-    if age.total_seconds() < meta_interval(config):
+    if age.total_seconds() < interval:
         return read_at, metrics
     return None
 
 
-def meta_write_cache(identity, read_at, metrics):
+def quota_write_cache(name, identity, read_at, metrics):
     """Guarda a última leitura em arquivo privado; só o digest da conta, nunca o token."""
-    path = meta_cache_path()
+    path = quota_cache_path(name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(path.parent, 0o700)
-        fd, name = tempfile.mkstemp(prefix=".meta-", dir=path.parent)
+        fd, temp = tempfile.mkstemp(prefix=f".{name}-", dir=path.parent)
         with os.fdopen(fd, "w") as f:
             json.dump({"read_at": read_at, "identity": identity, "metrics": metrics}, f)
             f.flush(); os.fsync(f.fileno())
-        os.chmod(name, 0o600)
-        os.replace(name, path)
+        os.chmod(temp, 0o600)
+        os.replace(temp, path)
     except OSError:
         pass
+
+
+def meta_cache_path():
+    return quota_cache_path("meta")
+
+
+def meta_read_cache(config, identity):
+    return quota_read_cache("meta", meta_interval(config), identity)
+
+
+def meta_write_cache(identity, read_at, metrics):
+    quota_write_cache("meta", identity, read_at, metrics)
 
 
 def parse_meta(payload):
@@ -569,6 +590,187 @@ def meta(config=None):
         meta_write_cache(identity, read_at, metrics)
     return service("meta", source=source, metrics=metrics, identity=identity,
                    message=meta_message(payload))
+
+
+def claude_login_path(config=None):
+    """Arquivo de credenciais do Claude Code, na ordem publicada pela Anthropic.
+
+    ``token_files.claude`` na configuração tem precedência; depois ``$CLAUDE_CONFIG_DIR`` +
+    ``/.credentials.json`` (usado por quem roda mais de uma conta) e por fim
+    ``~/.claude/.credentials.json``. No macOS o login vive no Keychain e não é lido aqui.
+    """
+    declared = ((config or {}).get("token_files") or {}).get("claude")
+    if declared:
+        return Path(os.path.expanduser(str(declared)))
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    if base:
+        return Path(os.path.expanduser(base))/".credentials.json"
+    return Path.home()/".claude"/".credentials.json"
+
+
+def claude_interval(config=None):
+    """Intervalo mínimo entre consultas de assinatura, em segundos (120 s a 24 h)."""
+    value = number(((config or {}).get("claude") or {}).get("min_interval_seconds"))
+    return max(120, min(86400, value)) if value else CLAUDE_MIN_INTERVAL
+
+
+CLAUDE_WINDOWS = {"session": ("janela", "Janela de 5 h", 18000),
+                  "weekly_all": ("semanal", "Semana", 604800),
+                  "weekly_scoped": ("semanal:", "Semana: ", 604800)}
+
+
+def parse_claude(payload):
+    """As janelas da assinatura do Claude Code, em duas formas conhecidas.
+
+    A resposta traz os objetos planos ``five_hour`` e ``seven_day`` (que passaram a vir nulos)
+    e a lista ``limits``, em que cada entrada se descreve com ``kind``, ``percent`` e
+    ``resets_at`` — a forma viva segundo os projetos que acompanham a CLI. Só entra o que vem
+    com percentual numérico: entrada desconhecida é ignorada, nunca convertida em zero. O
+    percentual é usado como veio, na escala 0–100 relatada pela Anthropic; a escala observada
+    aparece no diagnóstico, e um valor fracionário seria sub-relatado, não inflado.
+    """
+    found = {}
+    for key, id_, label, window in (("five_hour", "janela", "Janela de 5 h", 18000),
+                                    ("seven_day", "semanal", "Semana", 604800)):
+        part = payload.get(key)
+        if isinstance(part, dict) and number(part.get("utilization")) is not None:
+            found[id_] = metric(id_, label, "quota", percent=part["utilization"], window=window,
+                                reset=part.get("resets_at"))
+    for entry in payload.get("limits") or []:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or "").lower()
+        percent = number(entry.get("percent") if number(entry.get("percent")) is not None
+                         else entry.get("utilization"))
+        if not kind or percent is None or kind not in CLAUDE_WINDOWS:
+            continue
+        id_, label, window = CLAUDE_WINDOWS[kind]
+        if kind == "weekly_scoped":
+            model = text(((entry.get("scope") or {}).get("model") or {}).get("display_name"), "")
+            if not model:
+                continue  # janela por modelo sem nome: não inventar rótulo
+            id_, label, window = f"semanal:{model}", f"Semana · {model}", 604800
+        found[id_] = metric(id_, label, "quota", percent=percent, window=window,
+                            reset=entry.get("resets_at"))
+    return list(found.values())
+
+
+def claude_message(payload, oauth):
+    """Nota pública do serviço: o que é a assinatura, plano e origem não verificada."""
+    partes = ["Assinatura do Claude Code; não é a cobrança por uso da API.",
+              "Conector não verificado em conta real."]
+    plano = text(oauth.get("subscriptionType"), "") if isinstance(oauth, dict) else ""
+    tier = text(oauth.get("rateLimitTier"), "") if isinstance(oauth, dict) else ""
+    if plano or tier:
+        partes.append("Plano: " + " · ".join(p for p in (plano, tier) if p) + ".")
+    return " ".join(partes)
+
+
+def claude(config=None):
+    config = config or {}
+    path = claude_login_path(config)
+    oauth = read_json(path).get("claudeAiOauth")
+    oauth = oauth if isinstance(oauth, dict) else {}
+    token = credentials.oauth_token("claude", {"token_files": {"claude": str(path)}})
+    if not token:
+        raise Unavailable("Login do Claude Code não encontrado; rode `claude` e faça /login.",
+                          "unconfigured")
+    # O token vale cerca de uma hora e é a própria CLI que o renova; o applet nunca renova
+    # credencial, então um token vencido vira aviso, e não uma consulta condenada a falhar.
+    expires = number(oauth.get("expiresAt"))
+    if expires:
+        segundos = expires/1000 if expires > 1e11 else expires
+        if segundos < time.time():
+            raise Unavailable("Token do Claude Code expirado; rode `claude` para renovar a "
+                              "sessão (o applet não renova credenciais).", "unconfigured")
+    identity = hashlib.sha256(token.encode()).hexdigest()
+    source = "Claude Code · assinatura (não verificado)"
+    cached = quota_read_cache("claude", claude_interval(config), identity)
+    if cached:
+        read_at, metrics = cached
+        result = service("claude", source=source, metrics=metrics, identity=identity,
+                         message="Leitura reaproveitada; a rota é consultada respeitando um "
+                                 "intervalo mínimo entre chamadas.")
+        result["read_at"] = read_at  # horário real: frescor não se inventa
+        return result
+    payload = request(CLAUDE_USAGE_URL, token, headers={"anthropic-beta": CLAUDE_BETA})
+    read_at = stamp()
+    metrics = parse_claude(payload)
+    if not metrics:
+        raise Unavailable("Resposta sem as janelas esperadas; rode `diag claude` e relate o "
+                          "resultado no GitHub para ajustar o conector.")
+    quota_write_cache("claude", identity, read_at, metrics)
+    return service("claude", source=source, metrics=metrics, identity=identity,
+                   message=claude_message(payload, oauth))
+
+
+def describe(payload, depth=0):
+    """Estrutura da resposta para diagnóstico: nomes de campos, tipos e faixa dos números.
+
+    Nenhum valor sai daqui. O que interessa relatar é o nome do campo e se o número vem em
+    0–1 ou em 0–100, a única ambiguidade capaz de estragar o percentual; texto e data são
+    classificados sem reproduzir conteúdo.
+    """
+    if depth > 3:
+        return "…"
+    if isinstance(payload, dict):
+        return {str(k): describe(v, depth + 1) for k, v in list(payload.items())[:40]}
+    if isinstance(payload, list):
+        return [describe(payload[0], depth + 1)] if payload else []
+    if isinstance(payload, bool) or payload is None:
+        return type(payload).__name__
+    if isinstance(payload, (int, float)):
+        value = float(payload)
+        if value < 0:
+            return "número negativo"
+        if value <= 1:
+            return "número entre 0 e 1"
+        return "número entre 1 e 100" if value <= 100 else "número acima de 100"
+    if isinstance(payload, str) and re.match(r"^\d{4}-\d{2}-\d{2}T", payload):
+        return "texto (data e hora)"
+    return "texto"
+
+
+def claude_diag(config=None):
+    """Diagnóstico do conector Claude Code, para relatar em issue sem vazar nada."""
+    config = config or {}
+    declared = ((config or {}).get("token_files") or {}).get("claude")
+    origem = ("configuração" if declared else
+              "CLAUDE_CONFIG_DIR" if os.environ.get("CLAUDE_CONFIG_DIR") else "padrão")
+    path = claude_login_path(config)
+    report = {"origem_do_caminho": origem, "arquivo_existe": path.exists()}
+    token = credentials.oauth_token("claude", {"token_files": {"claude": str(path)}})
+    if not token:
+        report["credencial"] = "não encontrada"
+        return report
+    report["credencial"] = "encontrada"
+    oauth = read_json(path).get("claudeAiOauth")
+    report["campos_do_login"] = sorted(oauth.keys()) if isinstance(oauth, dict) else []
+    try:
+        payload = request(CLAUDE_USAGE_URL, token, headers={"anthropic-beta": CLAUDE_BETA})
+    except Unavailable as e:
+        report["consulta"] = str(e)
+        return report
+    report["consulta"] = "ok"
+    report["estrutura"] = describe(payload)
+    report["janelas_reconhecidas"] = [m["id"] for m in parse_claude(payload)]
+    return report
+
+
+DIAGNOSTICS = {"claude": claude_diag}
+
+
+def diagnose(id_, config=None):
+    """Diagnóstico sanitizado de um serviço; há relatório apenas para quem declara um."""
+    fn = DIAGNOSTICS.get(id_)
+    if fn is None:
+        return {"diagnostico": "não há diagnóstico para este serviço"}
+    try:
+        return fn(config)
+    except Unavailable as e:
+        return {"erro": str(e)}
+    except Exception:
+        return {"erro": "falha inesperada no diagnóstico"}
 
 
 def collect_provider(id_, config=None):

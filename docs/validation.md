@@ -1,4 +1,4 @@
-# Validação da versão 0.1.0 — 25/09/2026
+# Validação da versão 0.1.0 — 25 e 26/09/2026
 
 ## Resultado
 
@@ -87,6 +87,25 @@ O caminho do login não foi adivinhado: o script do launcher embutido no binári
 
 Verificado: 46 testes Python offline (11 novos só deste conector: duas janelas, percentual ausente, valor acima de 100 limitado na barra com o número real na nota, ausência de vazamento de credencial/conta na mensagem, POST com o token e o cabeçalho esperados, reaproveitamento dentro do intervalo, leitura vencida, ordem de resolução do arquivo de login, limites do intervalo, falha sem zero inventado), `compileall`, `node --check`, teste JS do applet, teste CJS real, leitura real pelo `worker meta` (0,7 s na primeira chamada com rede, 0,06 s na segunda, sem rede) e conferência do arquivo de cache em 0600.
 
+## Nona fonte: a assinatura do Claude Code
+
+Em 26/09/2026, a pedido do usuário, entrou o nono conector. O ponto de partida foi um rascunho de 307 linhas gerado por outro assistente (guardado fora do repositório), analisado linha a linha antes da integração. O rascunho serviu de mapa — encontrou o token OAuth local, o formato `claudeAiOauth.accessToken` com `expiresAt`, a checagem de token vencido e a intenção de falhar suave —, mas a mecânica de coleta foi recusada:
+
+- **Consumia a cota que mede.** Para arrancar os cabeçalhos `anthropic-ratelimit-unified-*`, o rascunho fazia um POST em `/v1/messages` com `max_tokens: 1`. Com coleta a cada dois minutos, o applet gastaria a cota do usuário para exibi-la — o oposto do que o projeto se permite. O conector usa a rota de leitura `GET /api/oauth/usage`, a mesma que a CLI usa no `/usage`.
+- **Nomes de cabeçalho adivinhados**, e um deles sem sentido: `anthropic-ratelimit-unified-5h-utilization` e `-7d-reset` não existem na documentação pública (o padrão é `-{claim}-utilization` e `-reset`), e havia fallback para `anthropic-ratelimit-unified-status`, que traz `allowed`/`rejected` e não percentual.
+- **Heurística que inventa número:** `f * 100 if f <= 1 else f` converteria 0,4% em 40%. O conector usa o percentual como veio.
+- **Cabeçalhos brutos dentro do resultado** (que iriam para o cache) e o caminho da máquina na mensagem de erro, ambos contra as regras do contrato; além de ramos de macOS e Windows sem função num applet do Cinnamon no Linux e de um User-Agent imitando a CLI.
+
+O que foi verificado nesta máquina, e o que não:
+
+- **A rota existe.** `GET https://api.anthropic.com/api/oauth/usage` com token inválido devolveu **401** (não 404), com erro JSON — o caminho é real e o modo de falha cai no mapeamento de 401 já existente. O corpo reclamou de `x-api-key`, não do `Bearer`; sem token válido não dá para saber se isso importa.
+- **Sem conta, não há chamada.** Sem CLI `claude`, sem `~/.claude/.credentials.json` e sem variáveis Anthropic nesta máquina (verificado), o serviço fica `unconfigured`, com métricas vazias e nenhuma requisição — o estado de quem instalar o applet sem Claude Code.
+- **Diagnóstico sem valores.** `collector.py diag claude` devolve origem do caminho, existência do arquivo, nomes dos campos do login, estrutura da resposta (nomes, tipos e faixa dos números) e as janelas reconhecidas — sem valores, sem caminho da máquina e sem credencial. É o que um relato de issue precisa.
+- **61 testes offline** (15 novos: objetos planos e lista `limits`, tipo desconhecido ignorado, ausência de percentual, escala não rescalada, ordem de resolução do login, token vencido sem chamada, GET com `anthropic-beta` e sem corpo, reaproveitamento dentro do intervalo, cache 0600 só com digest, resposta desconhecida pedindo diagnóstico, 401 sem zero inventado, nota sem vazamento e diagnóstico sem valores).
+- **Não verificado:** a consulta com conta real — não há assinatura nem chave da Anthropic aqui. Ficam em aberto a aceitação do `Bearer` nessa rota, o formato atual do `.credentials.json` e a escala do percentual. O README declara isso na tabela de estado e na seção do serviço.
+
+A rota e o formato vieram de documentação pública de terceiros, não da Anthropic: o projeto `wakamex/ccusage`, as issues `anthropics/claude-code#27915` e `#18121` e a documentação da própria Anthropic sobre onde as credenciais ficam (`~/.claude/.credentials.json`, `CLAUDE_CONFIG_DIR`, Keychain no macOS).
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.
@@ -102,7 +121,9 @@ Sessões de entrega: as sessões dos agentes que participaram ficaram de fora de
 - [omarchy-ai-usage](https://github.com/rodrigo-sntg/omarchy-ai-usage), branch master, scripts ai-usage-codex.sh e ai-usage-antigravity.sh — referência de protocolo; não usamos o mapeamento de famílias Antigravity para janelas fictícias de cinco horas/sete dias.
 - Código do Cinnamon instalado: `/usr/share/cinnamon/js/ui/applet.js`, `popupMenu.js`, `settings.js`, applets nativos e esquema `org.cinnamon.desktop.peripherals.mouse`.
 - Código do Hermes instalado: `hermes_cli/nous_account.py`, `agent/billing_usage.py` e testes correspondentes — contrato de leitura OAuth do Nous; formato conferido com resposta real.
+- [Claude Code: onde ficam as credenciais](https://code.claude.com/docs/en/authentication) e [variáveis de ambiente](https://code.claude.com/docs/en/env-vars) — `~/.claude/.credentials.json`, `CLAUDE_CONFIG_DIR` e Keychain no macOS.
+- Rota de uso do Claude Code e formato da resposta: [ccusage](https://pypi.org/project/ccusage/) (`wakamex/ccusage`) e [anthropics/claude-code#27915](https://github.com/anthropics/claude-code/issues/27915) — `GET /api/oauth/usage` com `anthropic-beta: oauth-2025-04-20`, objetos `five_hour`/`seven_day` e a lista `limits` com `kind`, `percent` e `resets_at`. Não usamos o POST em `/v1/messages` para raspar cabeçalhos de limite: consome a cota exibida.
 
 ## Limitações conhecidas
 
-A recência deriva de mudanças entre coletas: é aproximada, começa sem histórico, inclui consumo da conta fora deste computador e não comprova qual agente fez a chamada. O conector Nous não renova tokens; o login é gerido pelo Hermes. Antigravity depende da IDE e de um protocolo local experimental. Go pode mudar seu endpoint. Alteração de formato mostra ausência/erro e preserva último valor válido, sem zerar cotas. Interface completa não implementa notificações nem gráficos históricos nesta versão.
+A recência deriva de mudanças entre coletas: é aproximada, começa sem histórico, inclui consumo da conta fora deste computador e não comprova qual agente fez a chamada. O conector Nous não renova tokens; o login é gerido pelo Hermes. Antigravity depende da IDE e de um protocolo local experimental. Go pode mudar seu endpoint. Alteração de formato mostra ausência/erro e preserva último valor válido, sem zerar cotas. O conector do **Claude Code** é o único publicado sem verificação em conta real: a rota e o formato seguem a documentação pública da comunidade, e o README declara isso na tabela e na seção do serviço. Interface completa não implementa notificações nem gráficos históricos nesta versão.
