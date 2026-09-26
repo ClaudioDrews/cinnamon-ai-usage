@@ -15,7 +15,8 @@ jobs:
   testes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 é a que roda em Node 24: a v4 fica na Node 20, que o GitHub desativou.
+      - uses: actions/checkout@v5
 
       # librsvg2-bin dá o rsvg-convert que o pacote usa para o ícone; python3-pil é exigência
       # do validate-spice; gettext dá o msgfmt/xgettext que ele também chama; e as ligações GTK
