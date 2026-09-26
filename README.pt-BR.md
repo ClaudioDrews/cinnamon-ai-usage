@@ -71,7 +71,7 @@ Demo não lê credenciais nem altera o cache. A coleta real não faz inferência
 
 ## Spices
 
-**Ainda não está na loja.** O pacote está pronto e passa no validador da própria loja; o pull request é o próximo passo. Enquanto ele não for aceito, instale por este repositório — seção seguinte.
+**Enviado ao Cinnamon Spices; aguardando revisão.** O [pull request #9075](https://github.com/linuxmint/cinnamon-spices-applets/pull/9075) está aberto. O pacote passa no validador da própria loja. Enquanto a submissão não for aceita, instale por este repositório — seção seguinte.
 
 O que espera lá:
 

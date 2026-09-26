@@ -71,7 +71,7 @@ Demo doesn't read credentials or change the cache. Real collection doesn't do in
 
 ## Spices
 
-**Not in the store yet.** The package is ready and passes the store's own validator; the pull request is the next step. Until it is accepted, install from this repository — next section.
+**Submitted to Cinnamon Spices; awaiting review.** [Pull request #9075](https://github.com/linuxmint/cinnamon-spices-applets/pull/9075) is open. The package passes the store's own validator. Until the submission is accepted, install from this repository — next section.
 
 What is waiting there:
 
