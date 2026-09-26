@@ -22,6 +22,8 @@ import re
 import shlex
 from pathlib import Path
 
+import i18n
+
 SCHEMA_NAME = "claudio.drews.CinnamonAIUsage"
 KEYRING_LABEL = "Cinnamon AI Usage"
 
@@ -79,6 +81,7 @@ def parse_assignments(text, discarded=None):
     valem as regras do shell — inclusive escape — e só um valor único é aceito. Linhas
     descartadas entram em ``discarded`` como (nome, motivo), para a interface poder dizer por
     que um serviço continua não configurado em vez de mostrar "não configurado" sem causa.
+    O motivo nasce em ``_()``: ele é mostrado na janela de credenciais, no idioma em vigor.
     """
     values = {}
     for line in (text or "").splitlines():
@@ -93,10 +96,10 @@ def parse_assignments(text, discarded=None):
             try:
                 parts = shlex.split(value, comments=False, posix=True)
             except ValueError:
-                _discard(discarded, name, "aspas não fechadas")
+                _discard(discarded, name, i18n._("unterminated quotes"))
                 continue
             if len(parts) != 1:
-                _discard(discarded, name, "mais de um valor entre aspas")
+                _discard(discarded, name, i18n._("more than one value inside quotes"))
                 continue
             values[name] = parts[0]
         else:
@@ -170,16 +173,17 @@ def keyring_get(name):
 def keyring_set(name, value, label=""):
     Secret = _secret_module()
     if Secret is None or _service(Secret) is None:
-        raise RuntimeError("Cofre do sistema indisponível.")
+        raise RuntimeError(i18n._("System keyring unavailable."))
+    stored_label = i18n._f(i18n._("{app} — {label}"), app=KEYRING_LABEL, label=label or name)
     Secret.password_store_sync(_schema(Secret), {"nome": name},
                                Secret.COLLECTION_DEFAULT,
-                               f"{KEYRING_LABEL} — {label or name}", value, None)
+                               stored_label, value, None)
 
 
 def keyring_delete(name):
     Secret = _secret_module()
     if Secret is None or _service(Secret) is None:
-        raise RuntimeError("Cofre do sistema indisponível.")
+        raise RuntimeError(i18n._("System keyring unavailable."))
     try:
         return bool(Secret.password_clear_sync(_schema(Secret), {"nome": name}, None))
     except Exception:
@@ -285,14 +289,22 @@ def value_source(names, config=None):
     return None, None
 
 
-SOURCE_LABELS = {"cofre": "guardado no cofre", "arquivo": "do arquivo indicado",
-                 "ambiente": "da variável de ambiente"}
+SOURCE_LABELS = {"cofre": i18n.N_("stored in the system keyring"),
+                 "arquivo": i18n.N_("from the indicated file"),
+                 "ambiente": i18n.N_("from the environment variable")}
+
+NOT_CONFIGURED = i18n.N_("not configured")
 
 
 def source_label(names, config=None):
-    """Rótulo público da origem do valor, sem revelar o valor."""
+    """Rótulo público da origem do valor, sem revelar o valor.
+
+    A tabela guarda o **msgid** (``N_()``) e a tradução acontece aqui, na hora de mostrar: com
+    ``_()`` no valor da tabela, o rótulo sairia no idioma de quem importou o módulo — a janela
+    de credenciais abriria em inglês num applet em português.
+    """
     layer, _value = value_source(names, config)
-    return SOURCE_LABELS.get(layer or "", "não configurado")
+    return i18n._(SOURCE_LABELS.get(layer or "", NOT_CONFIGURED))
 
 
 def service_value(service, config=None):

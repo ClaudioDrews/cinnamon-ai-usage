@@ -23,6 +23,12 @@ from providers import SERVICES, collect_provider, diagnose, number, service, sta
 # do idioma em que a leitura foi feita.
 PENDING_MESSAGE_ID = i18n.N_("Last reading available; refresh pending.")
 
+# Texto que versões anteriores **gravaram no cache**, antes de existir identificador: é a
+# tradução pt_BR deste mesmo msgid, e por isso sai do catálogo em vez de ficar escrita aqui —
+# nenhum idioma pode ter prosa fixa no código. Não é texto de interface: serve só para
+# classificar um snapshot antigo que já está no disco de quem atualiza (`stale_warning`).
+LEGACY_PENDING_TEXT = i18n._t(PENDING_MESSAGE_ID, "pt_BR")
+
 
 def paths():
     cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home()/".cache"))) / "cinnamon-ai-usage"
@@ -37,11 +43,11 @@ def timestamp(value):
         return 0
 
 
-def empty_snapshot(message=i18n.N_("No reading available; refresh to query.")):
-    """Snapshot sem leitura. ``message`` é o msgid; o texto sai no idioma da coleta e o
+def empty_snapshot(message_id=i18n.N_("No reading available; refresh to query.")):
+    """Snapshot sem leitura. ``message_id`` é o msgid; o texto sai no idioma da coleta e o
     identificador fica no registro, porque este snapshot também é gravado em cache."""
     return {"schema_version": 1, "generated_at": None,
-            "services": [service(k, "unavailable", message_id=message) for k in SERVICES]}
+            "services": [service(k, "unavailable", message_id=message_id) for k in SERVICES]}
 
 
 def valid_snapshot(data):
@@ -136,7 +142,9 @@ def stale_warning(service):
 
     O motivo vem do campo estruturado ``stale_reason``, nunca do texto: o texto é tradução, e
     tradução não é dado. Snapshots antigos, anteriores ao campo, são deduzidos pelo
-    identificador; os anteriores ao identificador, pelo texto em português que só eles têm.
+    identificador; os anteriores ao identificador, pelo texto que só eles têm — a leitura
+    antiga gravada em português, que é a tradução pt_BR do ``PENDING_MESSAGE_ID``
+    (``LEGACY_PENDING_TEXT``), buscada no catálogo e não escrita no código.
     """
     motivo = (service.get("stale_reason") or "").strip().lower()
     if not motivo:
@@ -145,7 +153,7 @@ def stale_warning(service):
             motivo = "pending"
         elif not ident:
             texto = service.get("message") or ""
-            motivo = "pending" if "atualização pendente" in texto else "failure"
+            motivo = "pending" if LEGACY_PENDING_TEXT and LEGACY_PENDING_TEXT in texto else "failure"
     if motivo == "pending":
         return i18n._("Previous reading data: the refresh interval has passed and this "
                       "service has not been read again yet.")
@@ -193,7 +201,8 @@ def collect(force=False, ttl_override=None):
         try:
             for id_ in SERVICES:
                 if isinstance(enabled, dict) and enabled.get(id_) is False:
-                    result[id_] = service(id_, "disabled", "Desativado na configuração.")
+                    result[id_] = service(id_, "disabled", message_id=i18n.N_(
+                        "Disabled in the configuration."))
                 else:
                     pending[id_] = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", id_],
                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -205,7 +214,8 @@ def collect(force=False, ttl_override=None):
                         raise ValueError()
                     result[id_] = item
                 except (subprocess.TimeoutExpired, ValueError):
-                    result[id_] = service(id_, "error", "Consulta excedeu o tempo limite ou retornou dados inválidos.")
+                    result[id_] = service(id_, "error", message_id=i18n.N_(
+                        "The query timed out or returned invalid data."))
         finally:
             for proc in pending.values():
                 if proc.poll() is None:
@@ -236,23 +246,27 @@ def collect(force=False, ttl_override=None):
 # Forma de cada conector na demonstração. O demo não pode afirmar o que o serviço não mede:
 # o Grok é pré-pago (saldo e créditos usados, sem janela de 5 h) e o OpenCode Go tem três
 # janelas. Antes tudo caía no mesmo ramo e a imagem de exemplo do repositório mentia.
+#
+# O segundo campo é o **msgid** do rótulo (`label_id`), não o texto: rótulo entra no contrato,
+# e texto que entra no contrato vai por identificador — quem mostra resolve no idioma em vigor
+# sem recolher nada (docs/i18n.md, "Textos que ficam no cache").
 DEMO_SHAPES = {
-    "codex": [("primary", "Janela de 5 h", "quota", 18000),
-              ("secondary", "Semana", "quota", 604800)],
-    "claude": [("five_hour", "Janela de 5 h", "quota", 18000),
-               ("seven_day", "Semana", "quota", 604800)],
-    "meta": [("janela", "Janela de 5 h", "quota", 18000),
-             ("semanal", "Semana", "quota", 604800)],
-    "opencode": [("rolling", "Janela móvel", "quota", None),
-                 ("weekly", "Semana", "quota", 604800),
-                 ("monthly", "Mês", "quota", None)],
-    "antigravity": [("model:exemplo", "Modelo de exemplo", "quota", None)],
-    "grok": [("balance:USD", "Saldo pré-pago da API", "balance", None),
-             ("credits_used", "Créditos pré-pagos usados", "quota", None)],
-    "nous": [("total_usable_credits", "Saldo total disponível", "balance", None),
-             ("subscription_credits_remaining", "Saldo do plano", "balance", None)],
-    "deepseek": [("balance:USD", "Saldo disponível", "balance", None)],
-    "openrouter": [("usage_monthly", "Gasto no mês", "spend", None)],
+    "codex": [("primary", i18n.N_("5 h window"), "quota", 18000),
+              ("secondary", i18n.N_("Week"), "quota", 604800)],
+    "claude": [("five_hour", i18n.N_("5 h window"), "quota", 18000),
+               ("seven_day", i18n.N_("Week"), "quota", 604800)],
+    "meta": [("janela", i18n.N_("5 h window"), "quota", 18000),
+             ("semanal", i18n.N_("Week"), "quota", 604800)],
+    "opencode": [("rolling", i18n.N_("Rolling window"), "quota", None),
+                 ("weekly", i18n.N_("Week"), "quota", 604800),
+                 ("monthly", i18n.N_("Month"), "quota", None)],
+    "antigravity": [("model:exemplo", i18n.N_("Example model"), "quota", None)],
+    "grok": [("balance:USD", i18n.N_("API prepaid balance"), "balance", None),
+             ("credits_used", i18n.N_("Prepaid credits used"), "quota", None)],
+    "nous": [("total_usable_credits", i18n.N_("Total available balance"), "balance", None),
+             ("subscription_credits_remaining", i18n.N_("Plan balance"), "balance", None)],
+    "deepseek": [("balance:USD", i18n.N_("Available balance"), "balance", None)],
+    "openrouter": [("usage_monthly", i18n.N_("Monthly spend"), "spend", None)],
 }
 
 
@@ -260,16 +274,16 @@ def demo():
     items = []
     for i, id_ in enumerate(SERVICES):
         metrics = []
-        for position, (metric_id, label, kind, window) in enumerate(DEMO_SHAPES.get(id_, [])):
+        for position, (metric_id, label_id, kind, window) in enumerate(DEMO_SHAPES.get(id_, [])):
             if kind in ("balance", "spend"):
                 # Valores nitidamente sintéticos: nada que possa ter vindo de uma resposta real.
-                metrics.append(metric(metric_id, label, kind, value=5.75 + i + position,
-                                      currency="USD"))
+                metrics.append(metric(metric_id, kind=kind, label_id=label_id,
+                                      value=5.75 + i + position, currency="USD"))
                 continue
-            metrics.append(metric(metric_id, label, "quota",
+            metrics.append(metric(metric_id, kind="quota", label_id=label_id,
                                   percent=min(92, 12 + i * 7 + position * 9), window=window,
                                   reset=time.time() + window / 3 if window else None))
-        item = service(id_, source="Simulação — nenhum dado real", metrics=metrics)
+        item = service(id_, source=i18n._("Simulation — no real data"), metrics=metrics)
         item.update(last_used_at=stamp(time.time()-i*900), recency_basis="observed_change")
         items.append(item)
     return {"schema_version": 1, "generated_at": stamp(), "demo": True, "services": items}
@@ -289,10 +303,11 @@ def main():
                         choices=["collect", "read", "demo", "worker", "diag"])
     parser.add_argument("provider", nargs="?", choices=list(SERVICES))
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--ttl", type=int, help="TTL desta consulta, em segundos")
+    parser.add_argument("--ttl", type=int, help=i18n._("TTL for this query, in seconds"))
     args = parser.parse_args()
     if args.command == "worker":
-        if not args.provider: parser.error("worker exige um provedor")
+        if not args.provider:
+            parser.error(i18n._("worker requires a provider"))
         def timed_out(*_):
             raise TimeoutError()
         signal.signal(signal.SIGALRM, timed_out)
@@ -300,7 +315,8 @@ def main():
         signal.alarm(30)
         result = collect_provider(args.provider, read_json(paths()[1]))
     elif args.command == "diag":
-        if not args.provider: parser.error("diag exige um provedor")
+        if not args.provider:
+            parser.error(i18n._("diag requires a provider"))
         result = diagnose(args.provider, read_json(paths()[1]))
     elif args.command == "demo":
         result = demo()
@@ -314,7 +330,8 @@ def main():
             signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
             result = public(collect(args.force, args.ttl))
         except (OSError, ValueError, TypeError):
-            result = empty_snapshot(i18n.N_("Failed to read the configuration or write the local cache."))
+            result = empty_snapshot(message_id=i18n.N_(
+                "Failed to read the configuration or write the local cache."))
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
 
 
