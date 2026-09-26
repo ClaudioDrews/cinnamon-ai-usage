@@ -4,9 +4,9 @@ Collector: `python3 backend/collector.py collect [--force]`; prints only UTF-8 J
 
 Non-secret configuration: ~/.config/cinnamon-ai-usage/config.json. Private cache: ~/.cache/cinnamon-ai-usage/snapshot.json. Default TTL 120 seconds. IDs: codex, claude, antigravity, grok, nous, opencode, deepseek, openrouter, meta.
 
-Example output (no secret):
+Example output (no secret; collected in English, so the saved text and the msgid coincide — a collection in another language keeps the same `_id`/`_args` and changes `label`, `message` and `source`; a reading that carries a note also brings `message_id` and `message_args`):
 ```json
-{"schema_version":1,"generated_at":"2026-09-25T20:00:00Z","services":[{"id":"codex","label":"Codex","status":"ok","message":"","source":"codex app-server","read_at":"2026-09-25T20:00:00Z","last_used_at":null,"recency_basis":"unknown","metrics":[{"id":"primary","label":"Janela de 5 h","kind":"quota","used_percent":42.0,"value":null,"currency":null,"window_seconds":18000,"reset_at":"2026-09-25T22:00:00Z"}]}]}
+{"schema_version":1,"generated_at":"2026-09-25T20:00:00Z","services":[{"id":"codex","label":"Codex","status":"ok","message":"","source":"Codex app-server","source_id":"Codex app-server","source_args":{},"read_at":"2026-09-25T20:00:00Z","last_used_at":null,"recency_basis":"unknown","metrics":[{"id":"primary","label":"Window of 5 h","label_id":"Window of {hours} h","label_args":{"hours":5},"kind":"quota","used_percent":42.0,"value":null,"currency":null,"window_seconds":18000,"reset_at":"2026-09-25T22:00:00Z"}]}]}
 ```
 
 Status: ok, stale (previous data preserved), unavailable (source absent/service closed), unconfigured (credential absent), error, disabled. When `stale`, the `stale_reason` field states the real reason: `pending` (the refresh interval has passed and there has been no new reading) or `failure` (the most recent refresh failed); old snapshots may not carry the field, and then the message identifier decides.
