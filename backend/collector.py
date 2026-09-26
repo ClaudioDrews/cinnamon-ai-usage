@@ -195,6 +195,28 @@ def save_atomic(path, snapshot):
         if os.path.exists(name): os.unlink(name)
 
 
+def worker(id_):
+    """Corpo do worker: consulta **um** serviço e devolve o veredito dele em JSON.
+
+    É a mesma função que roda no processo filho e a que um harness pode rodar no próprio
+    processo, depois de trocar as dependências externas por fixtures.
+    """
+    return collect_provider(id_, read_json(paths()[1]))
+
+
+def launch_worker(id_):
+    """Lança o worker de um serviço em processo próprio e devolve o processo.
+
+    Ponto único de criação de processo na coleta. O filho herda ambiente e sistema de
+    arquivos — é justamente esse acesso ao mundo real que um harness de evidência precisa
+    poder cortar, substituindo esta função por uma que roda o corpo do worker no lugar, com
+    credencial, rede e tabela de processos trocadas por fixtures.
+    """
+    return subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", id_],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
+
+
 def collect(force=False, ttl_override=None):
     cache, config_path = paths()
     cache.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -229,8 +251,7 @@ def collect(force=False, ttl_override=None):
                     result[id_] = service(id_, "disabled", message_id=i18n.N_(
                         "Disabled in the configuration."))
                 else:
-                    pending[id_] = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", id_],
-                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+                    pending[id_] = launch_worker(id_)
             for id_, proc in pending.items():
                 try:
                     output, _ = proc.communicate(timeout=max(0.1, deadline-time.monotonic()))
@@ -338,7 +359,7 @@ def main():
         signal.signal(signal.SIGALRM, timed_out)
         signal.signal(signal.SIGTERM, timed_out)
         signal.alarm(30)
-        result = collect_provider(args.provider, read_json(paths()[1]))
+        result = worker(args.provider)
     elif args.command == "diag":
         if not args.provider:
             parser.error(i18n._("diag requires a provider"))

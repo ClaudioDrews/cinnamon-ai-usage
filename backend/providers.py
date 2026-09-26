@@ -527,12 +527,14 @@ def parse_antigravity(payload):
         # inglês: trocar o idioma escondia o aumento de consumo. O id vem do dado bruto da
         # configuração e, sem ele, da posição do modelo na resposta.
         bruto = text((config.get("modelOrAlias") or {}).get("model"), "")
-        out.append(metric("model:" + (bruto or text(name, "") or str(index + 1)), label, "quota",
+        rotulo = text(name, "")
+        out.append(metric("model:" + (bruto or rotulo or str(index + 1)), label, "quota",
                           percent=(1 - fraction) * 100,
                           reset=quota.get("resetTime"),
                           label_id=None if tem_nome else i18n.N_("Model {number}"),
                           label_args=None if tem_nome else {"number": index + 1},
-                          aliases=None if tem_nome else legacy_model_ids(index + 1)))
+                          aliases=(legacy_named_model_ids(rotulo, bruto) if tem_nome
+                                   else legacy_model_ids(index + 1))))
     return out
 
 
@@ -548,9 +550,28 @@ def legacy_model_ids(numero):
     return ["model:" + i18n._f(i18n._t(msgid, code), number=numero) for code in i18n.LANGUAGES]
 
 
-def antigravity(config=None):
-    # Read only this user's process arguments in memory; never print CSRF tokens.
-    candidate = None
+def legacy_named_model_ids(rotulo, bruto):
+    """Ids que este projeto **já gravou** para um modelo nomeado, quando o rótulo virava id.
+
+    Modelo com nome também teve o id montado do rótulo (``model:Display Model``) enquanto o dado
+    bruto da resposta traz outro nome (``model:backend-model``): o id saía do rótulo, que é o
+    primeiro campo não vazio entre ``label``, ``modelLabel`` e ``modelOrAlias.model``. Aqui o
+    rótulo do serviço é dado da resposta — não texto traduzido —, então o id antigo é o próprio
+    rótulo, e é ele que entra em ``id_aliases`` para a comparação com o histórico já no disco.
+    """
+    if not rotulo or "model:" + rotulo == "model:" + bruto:
+        return None
+    return ["model:" + rotulo]
+
+
+def local_server_processes():
+    """Processos deste usuário que podem hospedar o servidor local do Antigravity.
+
+    Devolve ``(pid, opções)`` na ordem em que os processos aparecem, lendo só os argumentos
+    em memória — o token CSRF nunca é impresso. É o único ponto do conector que olha a tabela
+    de processos da máquina; fica numa função para um harness de evidência poder substituí-la
+    e obter uma coleta determinística, sem depender de haver uma IDE aberta.
+    """
     for directory in Path("/proc").glob("[0-9]*"):
         try:
             if directory.stat().st_uid != os.getuid():
@@ -563,10 +584,17 @@ def antigravity(config=None):
                 if arg.startswith("--"):
                     k, sep, val = arg.partition("=")
                     opts[k] = val if sep else (args[i+1] if i+1 < len(args) else "")
-            if opts.get("--csrf_token"):
-                candidate = (directory.name, opts); break
+            yield directory.name, opts
         except OSError:
             continue
+
+
+def antigravity(config=None):
+    # Read only this user's process arguments in memory; never print CSRF tokens.
+    candidate = None
+    for pid, opts in local_server_processes():
+        if opts.get("--csrf_token"):
+            candidate = (pid, opts); break
     if not candidate:
         raise Unavailable(i18n.N_("Open Antigravity to consult the local quotas."))
     pid, opts = candidate
@@ -873,12 +901,12 @@ def meta(config=None):
         raise Unavailable(i18n.N_("Muse Code login not found; run `muse login` to read the Meta "
                                   "subscription."), "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
-    source = i18n.N_("Muse Code · Meta subscription")
+    source_id = i18n.N_("Muse Code · Meta subscription")
     interval = meta_interval(config)
     cached = meta_read_cache(config, identity)
     if cached:
         return quota_reused_service(
-            "meta", cached, source, identity,
+            "meta", cached, source_id, identity,
             message_id=i18n.N_("Reading reused; the subscription is queried respecting a "
                                "minimum interval between calls."))
     if quota_attempt_recent("meta", interval, identity):
@@ -906,7 +934,7 @@ def meta(config=None):
     meta_write_cache(identity, read_at, metrics)
     # O texto é o recurso de quem não tem catálogo; o identificador é o que a interface usa, e os
     # dois seguem no registro (docs/i18n.md).
-    return service("meta", source=source, metrics=metrics, identity=identity,
+    return service("meta", source_id=source_id, metrics=metrics, identity=identity,
                    message=meta_message(payload), message_id=META_NOTE_ID,
                    message_args=meta_note_args(payload))
 
@@ -1024,12 +1052,12 @@ def claude(config=None):
                                       "session (the applet does not renew credentials)."),
                               "unconfigured")
     identity = hashlib.sha256(token.encode()).hexdigest()
-    source = i18n.N_("Claude Code · subscription (not verified)")
+    source_id = i18n.N_("Claude Code · subscription (not verified)")
     interval = claude_interval(config)
     cached = quota_reuse("claude", interval, identity)
     if cached:
         return quota_reused_service(
-            "claude", cached, source, identity,
+            "claude", cached, source_id, identity,
             message_id=i18n.N_("Reading reused; the route is queried respecting a minimum "
                                "interval between calls."))
     if quota_attempt_recent("claude", interval, identity):
@@ -1047,7 +1075,7 @@ def claude(config=None):
                            getattr(error, "message_args", None))
         raise
     quota_write_cache("claude", identity, read_at, metrics)
-    return service("claude", source=source, metrics=metrics, identity=identity,
+    return service("claude", source_id=source_id, metrics=metrics, identity=identity,
                    message=claude_message(payload, oauth), message_id=CLAUDE_NOTE_ID,
                    message_args=claude_note_args(oauth))
 

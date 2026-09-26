@@ -218,77 +218,77 @@ msgstr ""
 msgid "Previous reading data: the most recent refresh of this service failed."
 msgstr ""
 
-#: backend/collector.py:230
+#: backend/collector.py:252
 msgid "Disabled in the configuration."
 msgstr ""
 
-#: backend/collector.py:243
+#: backend/collector.py:264
 msgid "The query timed out or returned invalid data."
 msgstr ""
 
-#: backend/collector.py:279 backend/collector.py:281 backend/collector.py:283
+#: backend/collector.py:300 backend/collector.py:302 backend/collector.py:304
 msgid "5 h window"
 msgstr ""
 
-#: backend/collector.py:280 backend/collector.py:282 backend/collector.py:284
-#: backend/collector.py:286 backend/providers.py:426 backend/providers.py:831
-#: backend/providers.py:939 backend/providers.py:942
+#: backend/collector.py:301 backend/collector.py:303 backend/collector.py:305
+#: backend/collector.py:307 backend/providers.py:426 backend/providers.py:859
+#: backend/providers.py:967 backend/providers.py:970
 msgid "Week"
 msgstr ""
 
-#: backend/collector.py:285 backend/providers.py:425
+#: backend/collector.py:306 backend/providers.py:425
 msgid "Rolling window"
 msgstr ""
 
-#: backend/collector.py:287 backend/providers.py:427
+#: backend/collector.py:308 backend/providers.py:427
 msgid "Month"
 msgstr ""
 
-#: backend/collector.py:288
+#: backend/collector.py:309
 msgid "Example model"
 msgstr ""
 
-#: backend/collector.py:289 backend/providers.py:469
+#: backend/collector.py:310 backend/providers.py:469
 msgid "API prepaid balance"
 msgstr ""
 
-#: backend/collector.py:290 backend/providers.py:472
+#: backend/collector.py:311 backend/providers.py:472
 msgid "Prepaid credits used"
 msgstr ""
 
-#: backend/collector.py:291 backend/providers.py:394
+#: backend/collector.py:312 backend/providers.py:394
 msgid "Total available balance"
 msgstr ""
 
-#: backend/collector.py:292 backend/providers.py:398
+#: backend/collector.py:313 backend/providers.py:398
 msgid "Plan balance"
 msgstr ""
 
-#: backend/collector.py:293 backend/providers.py:374
+#: backend/collector.py:314 backend/providers.py:374
 msgid "Available balance"
 msgstr ""
 
-#: backend/collector.py:294 backend/providers.py:360
+#: backend/collector.py:315 backend/providers.py:360
 msgid "Monthly spend"
 msgstr ""
 
-#: backend/collector.py:311
+#: backend/collector.py:332
 msgid "Simulation — no real data"
 msgstr ""
 
-#: backend/collector.py:331
+#: backend/collector.py:352
 msgid "TTL for this query, in seconds"
 msgstr ""
 
-#: backend/collector.py:335
+#: backend/collector.py:356
 msgid "worker requires a provider"
 msgstr ""
 
-#: backend/collector.py:344
+#: backend/collector.py:365
 msgid "diag requires a provider"
 msgstr ""
 
-#: backend/collector.py:359
+#: backend/collector.py:380
 msgid "Failed to read the configuration or write the local cache."
 msgstr ""
 
@@ -675,7 +675,7 @@ msgstr ""
 msgid "Quota"
 msgstr ""
 
-#: backend/providers.py:268 backend/providers.py:823 backend/providers.py:938
+#: backend/providers.py:268 backend/providers.py:851 backend/providers.py:966
 #, python-brace-format
 msgid "Window of {hours} h"
 msgstr ""
@@ -787,24 +787,24 @@ msgstr ""
 msgid "Flow credits"
 msgstr ""
 
-#: backend/providers.py:523 backend/providers.py:533 backend/providers.py:547
+#: backend/providers.py:523 backend/providers.py:534 backend/providers.py:549
 #, python-brace-format
 msgid "Model {number}"
 msgstr ""
 
-#: backend/providers.py:571
+#: backend/providers.py:599
 msgid "Open Antigravity to consult the local quotas."
 msgstr ""
 
-#: backend/providers.py:601
+#: backend/providers.py:629
 msgid "Antigravity · local server (experimental)"
 msgstr ""
 
-#: backend/providers.py:605
+#: backend/providers.py:633
 msgid "Local server found, but it did not return recognized quotas."
 msgstr ""
 
-#: backend/providers.py:788
+#: backend/providers.py:816
 #, python-brace-format
 msgid ""
 "Consultation deferred: there was already an attempt in the last {minutes} "
@@ -812,146 +812,146 @@ msgid ""
 "reading is kept."
 msgstr ""
 
-#: backend/providers.py:821
+#: backend/providers.py:849
 msgid "Current window"
 msgstr ""
 
-#: backend/providers.py:849 backend/providers.py:994
+#: backend/providers.py:877 backend/providers.py:1022
 #, python-brace-format
 msgid "Plan: {plan}."
 msgstr ""
 
-#: backend/providers.py:854
+#: backend/providers.py:882
 #, python-brace-format
 msgid "Meta reported {percent}% usage; the applet bar stops at 100%."
 msgstr ""
 
-#: backend/providers.py:873
+#: backend/providers.py:901
 msgid ""
 "Muse Code login not found; run `muse login` to read the Meta subscription."
 msgstr ""
 
-#: backend/providers.py:876
+#: backend/providers.py:904
 msgid "Muse Code · Meta subscription"
 msgstr ""
 
-#: backend/providers.py:882
+#: backend/providers.py:910
 msgid ""
 "Reading reused; the subscription is queried respecting a minimum interval "
 "between calls."
 msgstr ""
 
-#: backend/providers.py:900
+#: backend/providers.py:928
 msgid ""
 "Meta answered without the subscription percentages; run `diag meta` and "
 "report the result on GitHub to adjust the connector."
 msgstr ""
 
-#: backend/providers.py:981
+#: backend/providers.py:1009
 #, python-brace-format
 msgid "Week · {model}"
 msgstr ""
 
-#: backend/providers.py:992
+#: backend/providers.py:1020
 #, python-brace-format
 msgid "Plan: {plan} · {tier}."
 msgstr ""
 
-#: backend/providers.py:1015
+#: backend/providers.py:1043
 msgid "Claude Code login not found; run `claude` and use /login."
 msgstr ""
 
-#: backend/providers.py:1023
+#: backend/providers.py:1051
 msgid ""
 "Claude Code token expired; run `claude` to renew the session (the applet "
 "does not renew credentials)."
 msgstr ""
 
-#: backend/providers.py:1027
+#: backend/providers.py:1055
 msgid "Claude Code · subscription (not verified)"
 msgstr ""
 
-#: backend/providers.py:1033
+#: backend/providers.py:1061
 msgid ""
 "Reading reused; the route is queried respecting a minimum interval between "
 "calls."
 msgstr ""
 
-#: backend/providers.py:1043
+#: backend/providers.py:1071
 msgid ""
 "Response without the expected windows; run `diag claude` and report the "
 "result on GitHub to adjust the connector."
 msgstr ""
 
-#: backend/providers.py:1063
+#: backend/providers.py:1091
 msgid "…"
 msgstr ""
 
-#: backend/providers.py:1073
+#: backend/providers.py:1101
 msgid "negative number"
 msgstr ""
 
-#: backend/providers.py:1075
+#: backend/providers.py:1103
 msgid "number between 0 and 1"
 msgstr ""
 
-#: backend/providers.py:1076
+#: backend/providers.py:1104
 msgid "number between 1 and 100"
 msgstr ""
 
-#: backend/providers.py:1076
+#: backend/providers.py:1104
 msgid "number above 100"
 msgstr ""
 
-#: backend/providers.py:1078
+#: backend/providers.py:1106
 msgid "text (date and time)"
 msgstr ""
 
-#: backend/providers.py:1079
+#: backend/providers.py:1107
 msgid "text"
 msgstr ""
 
-#: backend/providers.py:1086 backend/providers.py:1143
+#: backend/providers.py:1114 backend/providers.py:1171
 msgid "configuration"
 msgstr ""
 
-#: backend/providers.py:1087 backend/providers.py:1144
+#: backend/providers.py:1115 backend/providers.py:1172
 msgid "default"
 msgstr ""
 
-#: backend/providers.py:1092 backend/providers.py:1149
+#: backend/providers.py:1120 backend/providers.py:1177
 msgid "not found"
 msgstr ""
 
-#: backend/providers.py:1094 backend/providers.py:1151
+#: backend/providers.py:1122 backend/providers.py:1179
 msgid "found"
 msgstr ""
 
-#: backend/providers.py:1102 backend/providers.py:1159
+#: backend/providers.py:1130 backend/providers.py:1187
 msgid "ok"
 msgstr ""
 
-#: backend/providers.py:1129
+#: backend/providers.py:1157
 msgid "absent"
 msgstr ""
 
-#: backend/providers.py:1130
+#: backend/providers.py:1158
 msgid "null"
 msgstr ""
 
-#: backend/providers.py:1173
+#: backend/providers.py:1201
 msgid "no diagnostic for this service"
 msgstr ""
 
-#: backend/providers.py:1179
+#: backend/providers.py:1207
 msgid "unexpected failure in the diagnostic"
 msgstr ""
 
-#: backend/providers.py:1187
+#: backend/providers.py:1215
 msgid "Source did not return recognized usage metrics."
 msgstr ""
 
-#: backend/providers.py:1195
+#: backend/providers.py:1223
 msgid "Failed to read the service data; try refreshing."
 msgstr ""
 

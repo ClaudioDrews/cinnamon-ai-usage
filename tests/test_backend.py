@@ -305,6 +305,30 @@ class ProviderTests(unittest.TestCase):
         self.assertIn(hashlib.sha256(b'token-de-teste').hexdigest(), texto)  # só o digest da conta
         self.assertNotIn('token-de-teste', texto)  # nunca o token
 
+    def test_meta_origin_travels_by_identifier_in_the_collection_and_in_the_reuse(self):
+        """A origem sai por identificador nos dois caminhos: coleta nova e leitura reaproveitada.
+
+        O retorno da coleta nova entregava o msgid no campo de **texto** (``source=``), e o
+        registro saía sem ``source_id``. A janela resolve a origem pelo identificador, então uma
+        leitura coletada em português aparecia numa apresentação em inglês como
+        ``Muse Code · Meta subscription`` — o msgid cru, não a frase traduzida. O teste roda a
+        coleta em português, com resposta simulada, e passa a mesma conferência nas duas leituras:
+        a nova e a que o cache reaproveita dentro do intervalo mínimo.
+        """
+        self.addCleanup(i18n.activate, i18n.language())   # o idioma do processo é global
+        i18n.activate('pt_BR')
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._meta_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            request.side_effect = lambda *a, **k: self._meta_payload()
+            config = {'token_files': {'meta': self._meta_login()}}
+            nova = p.meta(config)
+            reaproveitada = p.meta(config)
+        self.assertEqual(request.call_count, 1)           # a segunda leitura veio do cache
+        for registro in (nova, reaproveitada):
+            self.assertEqual(registro['status'], 'ok')
+            self.assertEqual(registro['source_id'], 'Muse Code · Meta subscription')
+            self.assertEqual(registro['source'], key('Muse Code · Meta subscription'))
+
     def test_meta_expired_reading_is_refreshed(self):
         cache = self._meta_tmp()
         with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False):
@@ -497,6 +521,29 @@ class ClaudeTests(unittest.TestCase):
         self.assertIn(hashlib.sha256(b'token-de-teste').hexdigest(), texto)
         self.assertNotIn('token-de-teste', texto)
 
+    def test_claude_origin_travels_by_identifier_in_the_collection_and_in_the_reuse(self):
+        """A origem sai por identificador nos dois caminhos: coleta nova e leitura reaproveitada.
+
+        Mesmo defeito do conector da Meta: a coleta nova passava o msgid no campo de texto e o
+        registro saía sem ``source_id``, então a origem de uma leitura coletada em português
+        aparecia em inglês como ``Claude Code · subscription (not verified)`` (o msgid cru) numa
+        apresentação que resolve a origem pelo identificador.
+        """
+        self.addCleanup(i18n.activate, i18n.language())   # o idioma do processo é global
+        i18n.activate('pt_BR')
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': self._claude_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            request.side_effect = lambda *a, **k: self._claude_payload()
+            config = {'token_files': {'claude': self._claude_login()}}
+            nova = p.claude(config)
+            reaproveitada = p.claude(config)
+        self.assertEqual(request.call_count, 1)           # a segunda leitura veio do cache
+        for registro in (nova, reaproveitada):
+            self.assertEqual(registro['status'], 'ok')
+            self.assertEqual(registro['source_id'], 'Claude Code · subscription (not verified)')
+            self.assertEqual(registro['source'],
+                             key('Claude Code · subscription (not verified)'))
+
     def test_claude_interval_has_floor_and_ceiling(self):
         self.assertEqual(p.claude_interval({}), 300)
         self.assertEqual(p.claude_interval({'claude': {'min_interval_seconds': 10}}), 120)
@@ -652,6 +699,54 @@ class HistoryTests(unittest.TestCase):
                                           leitura('pt_BR', 40)))
         # Sem aumento não há recência nova — o alias não inventa mudança.
         self.assertFalse(c.detected_change(antes, leitura('en', 20)))
+
+    def test_the_named_model_identifier_keeps_the_one_the_previous_version_saved(self):
+        """Modelo **com** nome também mudou de id, e o alias preserva o histórico.
+
+        Com ``label="Display Model"`` e ``modelOrAlias.model="backend-model"``, a versão anterior
+        gravava ``model:Display Model`` (o id saía do rótulo) e a correção passou a gravar
+        ``model:backend-model`` (o dado bruto é que é estável). Como o nome existe, nenhum alias
+        era declarado — e o aumento de 20% para 40% voltava a passar em silêncio contra o
+        histórico que já está no disco. O id novo vem do dado bruto; ``id_aliases`` guarda o id
+        antigo, do rótulo, que aqui é dado da resposta e não texto traduzido.
+        """
+        payload = lambda pct: {'userStatus': {'cascadeModelConfigData': {'clientModelConfigs': [
+            {'label': 'Display Model', 'modelOrAlias': {'model': 'backend-model'},
+             'quotaInfo': {'remainingFraction': 1 - pct / 100.0}}]}}}
+
+        def leitura(pct, id_gravado=None):
+            metricas = p.parse_antigravity(payload(pct))
+            if id_gravado:
+                # Registro como a versão anterior gravava: id do rótulo, sem aliases.
+                metricas[0].pop('id_aliases', None)
+                metricas[0]['id'] = id_gravado
+            return p.service('antigravity', metrics=metricas, identity='antigravity:123')
+
+        nova = leitura(40)
+        self.assertEqual(nova['metrics'][0]['id'], 'model:backend-model')
+        self.assertEqual(nova['metrics'][0]['id_aliases'], ['model:Display Model'])
+        self.assertEqual(nova['metrics'][0]['label'], 'Display Model')  # o rótulo segue rótulo
+
+        antiga = leitura(20, id_gravado='model:Display Model')
+        self.assertNotIn('id_aliases', antiga['metrics'][0])
+        self.assertTrue(c.detected_change(antiga, nova),
+                        'a primeira coleta depois da correção compara com o histórico existente')
+        self.assertEqual(c.merge_history(nova, antiga)['recency_basis'], 'observed_change')
+        # Sem aumento não há recência nova — o alias não inventa mudança.
+        self.assertFalse(c.detected_change(antiga, leitura(20)))
+
+        # Modelo nomeado sem `label`, só com `modelLabel`: o id antigo vinha dele.
+        outro = {'userStatus': {'cascadeModelConfigData': {'clientModelConfigs': [
+            {'modelLabel': 'Rótulo do modelo', 'modelOrAlias': {'model': 'backend-2'},
+             'quotaInfo': {'remainingFraction': 0.8}}]}}}
+        self.assertEqual(p.parse_antigravity(outro)[0]['id'], 'model:backend-2')
+        self.assertEqual(p.parse_antigravity(outro)[0]['id_aliases'], ['model:Rótulo do modelo'])
+
+        # Sem nome nenhum nada mudou: a posição na resposta é o id, e os aliases saem do catálogo.
+        sem_nome = p.parse_antigravity({'userStatus': {'cascadeModelConfigData': {'clientModelConfigs': [
+            {'quotaInfo': {'remainingFraction': 0.8}}]}}})[0]
+        self.assertEqual(sem_nome['id'], 'model:1')
+        self.assertIn('model:Model 1', sem_nome['id_aliases'])
 
     def test_public_output_removes_private_identity(self):
         result = c.public({'services': [self.old]})
