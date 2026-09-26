@@ -79,10 +79,13 @@ with open(caminho, 'w', encoding='utf-8') as arquivo:
     arquivo.write('\n')
 PY
 
-# No topo do pacote: o que o revisor e o site do Spices leem.
+# No topo do pacote: o que o revisor e o site do Spices leem. O README do pacote é o
+# texto próprio da loja (spice/README.md) — curto, com links absolutos e sem install.py —,
+# não o README do repositório, cujos links para docs/ quebrariam no site.
 printf '{\n    "author": "ClaudioDrews",\n    "license": "MIT"\n}\n' > "$RAIZ/info.json"
 cp docs/demo.png "$RAIZ/screenshot.png"
-cp README.md LICENSE "$RAIZ/"
+cp spice/README.md "$RAIZ/README.md"
+cp LICENSE "$RAIZ/"
 
 # Conferências locais que não dependem do validador externo.
 if find "$RAIZ" -name '*.mo' | grep -q .; then
