@@ -17,6 +17,17 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 import providers as p
 import collector as c
+import i18n
+
+
+def key(text, **values):
+    """Texto esperado pelo identificador em inglês, no idioma em vigor.
+
+    A asserção cita a chave (`Window of {hours} h`) e não a tradução: assim ela passa em
+    qualquer idioma e continua dizendo o que o texto significa. Prosa convertida em msgid
+    não se afirma por literal — foi justamente o que a Fase 2 tirou do código.
+    """
+    return i18n._f(i18n._(text), **values) if values else i18n._(text)
 
 
 class ProviderTests(unittest.TestCase):
@@ -65,7 +76,8 @@ class ProviderTests(unittest.TestCase):
                                                     'subscription_credits_remaining': 21.09,
                                                     'purchased_credits_remaining': 0}})
         self.assertEqual([m['id'] for m in got], ['total_usable_credits'])
-        self.assertEqual(got[0]['label'], 'Saldo total disponível')
+        self.assertEqual(got[0]['label_id'], 'Total available balance')
+        self.assertEqual(got[0]['label'], key('Total available balance'))
         self.assertEqual(got[0]['reset_at'], '2026-10-22T21:17:20Z')
 
     def test_go_observed_response_shape(self):
@@ -115,7 +127,8 @@ class ProviderTests(unittest.TestCase):
     def test_grok_ledger_with_usage_gives_percentage_of_granted_credits(self):
         metrics = p.parse_grok(self._grok_payload('-1500', [('PURCHASE', '-2000'), ('USAGE', '500')]))
         self.assertEqual(metrics[0]['value'], 15.0)
-        self.assertEqual(metrics[1]['label'], 'Créditos pré-pagos usados')
+        self.assertEqual(metrics[1]['label_id'], 'Prepaid credits used')
+        self.assertEqual(metrics[1]['label'], key('Prepaid credits used'))
         self.assertEqual(metrics[1]['used_percent'], 25.0)
         self.assertEqual(metrics[1]['value'], 5.0)
 
@@ -229,7 +242,8 @@ class ProviderTests(unittest.TestCase):
     def test_meta_windows_come_from_the_subscription_snapshot(self):
         got = p.parse_meta(self._meta_payload())
         self.assertEqual([m['id'] for m in got], ['janela', 'semanal'])
-        self.assertEqual([m['label'] for m in got], ['Janela de 5 h', 'Semana'])
+        self.assertEqual([m['label'] for m in got],
+                         [key('Window of {hours} h', hours=5), key('Week')])
         self.assertEqual([m['used_percent'] for m in got], [3, 1])
         self.assertEqual([m['window_seconds'] for m in got], [18000, 604800])
         self.assertTrue(all(m['kind'] == 'quota' for m in got))
@@ -331,11 +345,11 @@ class ProviderTests(unittest.TestCase):
             report = p.diagnose('meta', {'token_files': {'meta': login}})
         texto = json.dumps(report, ensure_ascii=False)
         self.assertEqual(report['consulta'], 'ok')
-        self.assertEqual(report['credencial'], 'encontrada')
+        self.assertEqual(report['credencial'], key('found'))
         self.assertEqual(report['janelas_reconhecidas'], ['janela', 'semanal'])
         self.assertEqual(report['campos_esperados'],
-                         {'subs_usage.window.used_percent': 'número entre 1 e 100',
-                          'subs_usage.weekly.used_percent': 'número entre 1 e 100'})
+                         {'subs_usage.window.used_percent': key('number between 1 and 100'),
+                          'subs_usage.weekly.used_percent': key('number between 1 and 100')})
         self.assertNotIn('nunca-deve-sair', texto)      # chave da conta
         self.assertNotIn('exemplo.invalid', texto)      # e-mail da conta
         self.assertNotIn('27681393394859588', texto)    # identificador da assinatura
@@ -350,16 +364,17 @@ class ProviderTests(unittest.TestCase):
         with patch.object(p, 'request', side_effect=lambda *a, **k: payload):
             report = p.meta_diag({'token_files': {'meta': self._meta_login()}})
         self.assertEqual(report['janelas_reconhecidas'], [])
-        self.assertEqual(report['campos_esperados']['subs_usage.window.used_percent'], 'texto')
-        self.assertEqual(report['campos_esperados']['subs_usage.weekly.used_percent'], 'ausente')
-        self.assertEqual(report['estrutura']['subs_usage']['weekly'], {'percent': 'número entre 1 e 100'})
+        self.assertEqual(report['campos_esperados']['subs_usage.window.used_percent'], key('text'))
+        self.assertEqual(report['campos_esperados']['subs_usage.weekly.used_percent'], key('absent'))
+        self.assertEqual(report['estrutura']['subs_usage']['weekly'],
+                         {'percent': key('number between 1 and 100')})
         self.assertNotIn('três', json.dumps(report, ensure_ascii=False))
 
     def test_meta_diagnostic_without_credential_does_not_call(self):
         with patch.dict(os.environ, {'XDG_CONFIG_HOME': self._meta_tmp()}, clear=False), \
              patch.object(p, 'request') as request:
             report = p.diagnose('meta', {})
-        self.assertEqual(report['credencial'], 'não encontrada')
+        self.assertEqual(report['credencial'], key('not found'))
         self.assertNotIn('consulta', report)
         request.assert_not_called()
 
@@ -398,7 +413,8 @@ class ClaudeTests(unittest.TestCase):
     def test_claude_flat_objects_give_the_two_windows(self):
         got = p.parse_claude(self._claude_payload())
         self.assertEqual([m['id'] for m in got], ['janela', 'semanal'])
-        self.assertEqual([m['label'] for m in got], ['Janela de 5 h', 'Semana'])
+        self.assertEqual([m['label'] for m in got],
+                         [key('Window of {hours} h', hours=5), key('Week')])
         self.assertEqual([m['used_percent'] for m in got], [35.0, 14.0])
         self.assertEqual([m['window_seconds'] for m in got], [18000, 604800])
         self.assertTrue(all(m['kind'] == 'quota' for m in got))
@@ -408,7 +424,7 @@ class ClaudeTests(unittest.TestCase):
         got = p.parse_claude(self._claude_limits_payload())
         self.assertEqual([m['id'] for m in got], ['janela', 'semanal', 'semanal:Sonnet'])
         self.assertEqual([m['used_percent'] for m in got], [35.0, 14.0, 39.0])
-        self.assertEqual(got[2]['label'], 'Semana · Sonnet')
+        self.assertEqual(got[2]['label'], key('Week · {model}', model='Sonnet'))
         self.assertNotIn('iguana_necktie', [m['id'] for m in got])  # sem janela nem modelo
 
     def test_claude_missing_percent_is_not_zero(self):
@@ -443,7 +459,10 @@ class ClaudeTests(unittest.TestCase):
         with patch.object(p, 'request') as request:
             result = p.collect_provider('claude', {'token_files': {'claude': vencido}})
         self.assertEqual(result['status'], 'unconfigured')
-        self.assertIn('expirado', result['message'])
+        self.assertIn('token expired', result['message_id'])
+        self.assertEqual(result['message'],
+                         key('Claude Code token expired; run `claude` to renew the session '
+                             '(the applet does not renew credentials).'))
         request.assert_not_called()  # o applet não renova credencial
 
     def test_claude_reads_the_usage_route_with_the_beta_header_and_no_body(self):
@@ -459,7 +478,7 @@ class ClaudeTests(unittest.TestCase):
         self.assertIsNone(seen['data'])  # GET: nenhuma requisição de inferência
         self.assertNotIn('messages', seen['url'])
         self.assertEqual([m['used_percent'] for m in result['metrics']], [35.0, 14.0])
-        self.assertIn('não verificado', result['source'])
+        self.assertEqual(result['source'], key('Claude Code · subscription (not verified)'))
 
     def test_claude_reuses_the_reading_and_the_cache_keeps_only_the_digest(self):
         cache = self._claude_tmp()
@@ -500,7 +519,7 @@ class ClaudeTests(unittest.TestCase):
     def test_claude_note_never_leaks_credential_or_account(self):
         nota = p.claude_message(self._claude_payload(), {'subscriptionType': 'max'})
         self.assertNotIn('nunca-deve-sair', nota)
-        self.assertIn('Plano: max', nota)
+        self.assertIn(key('Plan: {plan}.', plan='max'), nota)
 
     def test_claude_diagnostic_reports_structure_without_values(self):
         login = self._claude_login()
@@ -508,9 +527,9 @@ class ClaudeTests(unittest.TestCase):
             report = p.claude_diag({'token_files': {'claude': login}})
         texto = json.dumps(report, ensure_ascii=False)
         self.assertEqual(report['consulta'], 'ok')
-        self.assertEqual(report['credencial'], 'encontrada')
+        self.assertEqual(report['credencial'], key('found'))
         self.assertEqual(report['janelas_reconhecidas'], ['janela', 'semanal'])
-        self.assertIn('número entre 1 e 100', texto)  # faixa, não o valor
+        self.assertIn(key('number between 1 and 100'), texto)  # faixa, não o valor
         self.assertNotIn('nunca-deve-sair', texto)
         self.assertNotIn('35', texto)
         self.assertNotIn(login, texto)  # nenhum caminho da máquina
@@ -519,7 +538,7 @@ class ClaudeTests(unittest.TestCase):
 
     def test_diagnose_is_absent_for_services_without_one(self):
         self.assertEqual(p.diagnose('deepseek', {}),
-                         {'diagnostico': 'não há diagnóstico para este serviço'})
+                         {'diagnostico': key('no diagnostic for this service')})
 
 
 class DiagnosticCoverageTests(unittest.TestCase):
@@ -539,8 +558,9 @@ class DiagnosticCoverageTests(unittest.TestCase):
 
     def test_the_recommended_diagnostic_answers_for_each_service_it_suggests(self):
         report = p.diagnose('meta', {'token_files': {'meta': '/inexistente/auth.json'}})
-        self.assertNotIn('não há diagnóstico', json.dumps(report, ensure_ascii=False))
-        self.assertEqual(report['credencial'], 'não encontrada')
+        self.assertNotIn(key('no diagnostic for this service'),
+                         json.dumps(report, ensure_ascii=False))
+        self.assertEqual(report['credencial'], key('not found'))
 
 
 class HistoryTests(unittest.TestCase):
@@ -627,10 +647,10 @@ class CredentialFileTests(unittest.TestCase):
         motivos = []
         got = p.credentials.parse_assignments('KEY="sem-fecho\nOK=valor\n', motivos)
         self.assertEqual(got, {'OK': 'valor'})
-        self.assertEqual(motivos, [('KEY', 'aspas não fechadas')])
+        self.assertEqual(motivos, [('KEY', key('unterminated quotes'))])
         motivos.clear()
         p.credentials.parse_assignments('KEY="a" "b"\n', motivos)
-        self.assertEqual(motivos, [('KEY', 'mais de um valor entre aspas')])
+        self.assertEqual(motivos, [('KEY', key('more than one value inside quotes'))])
 
     def test_read_file_reports_discarded_lines_without_raising(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -638,7 +658,7 @@ class CredentialFileTests(unittest.TestCase):
             path.write_text('BOM=1\nRUIM="sem-fecho\n')
             motivos = []
             self.assertEqual(p.credentials.read_file(str(path), motivos), {'BOM': '1'})
-            self.assertEqual(motivos, [('RUIM', 'aspas não fechadas')])
+            self.assertEqual(motivos, [('RUIM', key('unterminated quotes'))])
             self.assertEqual(p.credentials.read_file(str(Path(tmp)/'nao-existe'), motivos), {})
 
 
@@ -651,7 +671,7 @@ class DemoAndVersionTests(unittest.TestCase):
         self.assertIn('balance', [m['kind'] for m in grok])
         self.assertFalse([m for m in grok if m['window_seconds'] == 18000])  # não é pré-pago com 5 h
         self.assertEqual([m['label'] for m in por_id['opencode']['metrics']],
-                         ['Janela móvel', 'Semana', 'Mês'])
+                         [key('Rolling window'), key('Week'), key('Month')])
         self.assertEqual(por_id['openrouter']['metrics'][0]['kind'], 'spend')
         for servico in c.demo()['services']:
             self.assertTrue(servico['metrics'], servico['id'])
@@ -728,8 +748,10 @@ class HygieneTests(unittest.TestCase):
                 resultado = c.collect(force=True)
             self.assertTrue(resultado['generated_at'].endswith('Z'))
             self.assertEqual([s['status'] for s in resultado['services'] if s['id'] == 'codex'], ['ok'])
-            # Nada de "Falha ao ler configuração": a corrida no encerramento não é erro de leitura.
-            self.assertNotIn('Falha ao ler configuração', json.dumps(resultado))
+            # Nada de erro de leitura: a corrida no encerramento não é falha de configuração
+            # nem de cache. A chave é afirmada pelo identificador, em qualquer idioma.
+            self.assertNotIn(key('Failed to read the configuration or write the local cache.'),
+                             json.dumps(resultado, ensure_ascii=False))
 
     def test_naive_timestamp_is_read_as_utc(self):
         # Antes a data sem fuso sumia em silêncio (o campo reset_at desaparecia).
@@ -786,7 +808,10 @@ class LockNoticeTests(unittest.TestCase):
         with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
              patch.object(c.subprocess, 'Popen') as popen:
             resultado = c.collect(force=True)
-        self.assertIn('already running', resultado['notice'])  # o idioma do teste é o inglês
+        # Aviso de coleta pulada: chave, não literal — a suíte roda nos dois idiomas.
+        self.assertEqual(resultado['notice'],
+                         key('Refresh skipped: a collection is already running; '
+                             'the values are the last reading.'))
         self.assertEqual(resultado['generated_at'], antigo['generated_at'])
         self.assertEqual(resultado['services'][0]['status'], 'stale')
         self.assertEqual(resultado['services'][0]['metrics'][0]['used_percent'], 42.0)
@@ -919,7 +944,7 @@ class SecondReviewTests(unittest.TestCase):
         self.assertEqual(primeira['status'], 'error')
         for depois in (segunda, terceira):
             self.assertEqual(depois['status'], 'unavailable')
-            self.assertIn('Consulta adiada', depois['message'])
+            self.assertIn('Consultation deferred', depois['message_id'])
 
     def test_a_failed_attempt_holds_the_interval_for_claude_too(self):
         with patch.dict(os.environ, {'XDG_CACHE_HOME': self._tmp()}, clear=False), \
@@ -986,14 +1011,17 @@ class CredentialPrecedenceTests(unittest.TestCase):
             with patch.object(p.credentials, 'keyring_get',
                               side_effect=lambda nome: cofre.get(nome)):
                 self.assertEqual(p.credentials.service_value('grok', config), 'chave-nova')
-                self.assertEqual(p.credentials.source_label(nomes, config), 'guardado no cofre')
+                self.assertEqual(p.credentials.source_label(nomes, config),
+                                 key('stored in the system keyring'))
                 cofre.clear()
                 self.assertEqual(p.credentials.service_value('grok', config), 'chave-velha')
-                self.assertEqual(p.credentials.source_label(nomes, config), 'do arquivo indicado')
+                self.assertEqual(p.credentials.source_label(nomes, config),
+                                 key('from the indicated file'))
                 os.environ['XAI_MANAGEMENT_KEY'] = 'chave-do-ambiente'
-                self.assertEqual(p.credentials.source_label(nomes, {}), 'da variável de ambiente')
+                self.assertEqual(p.credentials.source_label(nomes, {}),
+                                 key('from the environment variable'))
                 del os.environ['XAI_MANAGEMENT_KEY']
-            self.assertEqual(p.credentials.source_label(nomes, {}), 'não configurado')
+            self.assertEqual(p.credentials.source_label(nomes, {}), key('not configured'))
 
     def test_the_window_takes_the_precedence_order_from_the_backend(self):
         # A interface não repete a regra: se ela reimplementasse a ordem, as duas voltariam a
@@ -1133,7 +1161,7 @@ class ThirdReviewTests(unittest.TestCase):
         self.assertEqual(request.call_count, 1)
         self.assertEqual(segunda['status'], 'unavailable')
         self.assertEqual(segunda['metrics'], [])
-        self.assertIn('Consulta adiada', segunda['message'])
+        self.assertIn('Consultation deferred', segunda['message_id'])
 
 
 if __name__ == '__main__':

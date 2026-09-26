@@ -5,10 +5,13 @@ from datetime import datetime
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 
 UUID = 'ai-usage@claudio.drews'
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT/'backend'))
+import i18n
 
 def readable_for_users(path):
     """Diretórios 0755 e arquivos 0644.
@@ -66,22 +69,31 @@ def install(destination, locale_destination=None):
             backups.mkdir(exist_ok=True)
             backup = backups/(UUID+'-'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
             target.rename(backup)
-            print('Cópia anterior preservada em:', backup)
+            print(i18n._('Previous copy preserved in:'), backup)
         stage.rename(target)
     finally:
         if stage.exists(): shutil.rmtree(stage)
-    print('Instalado em:', target)
+    print(i18n._('Installed in:'), target)
     catalogs = install_catalogs(locale_destination
                                 or Path.home()/'.local/share/locale')
     for path in catalogs:
-        print('Catálogo instalado em:', path)
-    print('Abra as configurações de Applets do Cinnamon e adicione Uso de IA ao painel.')
+        print(i18n._('Catalog installed in:'), path)
+    print(i18n._('Open the Cinnamon Applets settings and add AI usage to the panel.'))
     return target
 
-if __name__ == '__main__':
+def main(argv=None) -> int:
+    # O instalador fala o idioma de quem está instalando. Quem importa `install()` sem ativar
+    # nada recebe os msgids em inglês — previsível, e é o que os testes fazem: eles conferem
+    # o arquivo instalado, não a frase impressa.
+    i18n.activate()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--destination', default=str(Path.home()/'.local/share/cinnamon/applets'))
     parser.add_argument('--locale-destination', default=None,
-                        help='onde gravar os catálogos (padrão: ~/.local/share/locale)')
-    arguments = parser.parse_args()
+                        help=i18n._('where to write the catalogs (default: ~/.local/share/locale)'))
+    arguments = parser.parse_args(argv)
     install(arguments.destination, arguments.locale_destination)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

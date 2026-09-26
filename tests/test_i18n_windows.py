@@ -667,11 +667,18 @@ class CatalogTests(LanguageTestCase):
                 self.assertTrue(any(text.strip() for text in entries[msgid]['text']),
                                 f'{name}: msgid sem tradução: {msgid!r}')
 
-    def test_no_portuguese_prose_is_left_in_the_windows(self):
+    def test_the_shared_detector_finds_no_prose_in_the_windows(self):
+        """Nada além do declarado, e o crivo é o mesmo do resto do backend.
+
+        A lista de exceções (nome de serviço, molde, token técnico) vive em
+        tests/test_i18n.py, com o motivo de cada literal: um crivo só, para os dois não
+        divergirem — aqui se confere o escopo das duas janelas, que é o deste módulo.
+        """
         known = set(catalog())
         for name in self.FILES:
-            pending = test_i18n.prose_outside_catalog(ROOT / 'backend' / name, known)
-            self.assertEqual(pending, [], f'{name}: prosa portuguesa fora do catálogo')
+            declarado = sorted(test_i18n.NOT_PROSE.get(name, []))
+            pendentes = sorted(set(test_i18n.prose_outside_catalog(ROOT / 'backend' / name, known)))
+            self.assertEqual(pendentes, declarado, f'{name}: prosa fora do catálogo')
 
 
 if __name__ == '__main__':

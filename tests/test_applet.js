@@ -345,6 +345,10 @@ assert.equal(instance('auto', {LANGUAGE: '  ', LANG: 'pt_BR.UTF-8'})._language, 
     'LANGUAGE vazia não esconde o resto do ambiente');
 assert.equal(instance('auto', {})._language, 'en', 'ambiente sem variável nenhuma é inglês');
 assert.equal(instance('auto', {LANG: 'C'})._language, 'en', 'locale C não tem tradução');
+// Desvio deliberado, documentado em docs/i18n.md: LANGUAGE vale mesmo com LC_ALL=C, porque é
+// por LANGUAGE que o applet fixa o idioma dos filhos.
+assert.equal(instance('auto', {LANGUAGE: 'pt_BR', LC_ALL: 'C', LANG: 'C'})._language, 'pt_BR',
+    'LANGUAGE vence LC_ALL=C no nosso contrato');
 assert.equal(instance('auto', {LANG: 'pt_BR.UTF-8@euro'})._language, 'pt_BR',
     'modificador @euro não esconde o idioma');
 
@@ -430,6 +434,60 @@ assert.equal(context.plural('{days} day', '{days} days', 2), '{days} days');
 // pode morrer por causa disso.
 assert.equal(context.parseMo('/tmp/nao-existe.mo'), null);
 assert.equal(context.parseMo('package.json'), null); // existe, mas não é catálogo
+
+// Prosa presa no código do painel: literal que uma pessoa lê tem de passar por `_()`. A
+// conta ignora (a) o que é argumento dos helpers de tradução, (b) pedaço de concatenação,
+// (c) token técnico — nome de propriedade, classe de estilo, caminho de ícone, código de
+// status — e (d) molde só de marcadores. Sobra texto que ficaria no idioma do código, e a
+// dívida declarada é zero: o mesmo crivo que o Python usa em tests/test_i18n.py, aqui sem
+// depender de acento (o detector antigo não via "Saldo" nem "Refresh").
+function jsLiterals(source) {
+    const out = [];
+    let i = 0, quote = null, start = -1;
+    while (i < source.length) {
+        const ch = source[i];
+        if (quote) {
+            if (ch === '\\') { i += 2; continue; }
+            if (ch === quote) { out.push({text: source.slice(start + 1, i), start, end: i + 1}); quote = null; }
+            i++; continue;
+        }
+        if (ch === "'" || ch === '"' || ch === '`') { quote = ch; start = i; i++; continue; }
+        if (ch === '/' && source[i + 1] === '/') { i = source.indexOf('\n', i); if (i < 0) break; continue; }
+        if (ch === '/' && source[i + 1] === '*') { i = source.indexOf('*/', i); if (i < 0) break; i += 2; continue; }
+        i++;
+    }
+    return out;
+}
+
+function looksLikeProse(text) {
+    if (text.length < 4 || /[\n\t]/.test(text)) return false;
+    if (!/[A-Za-zÀ-ÿ]/.test(text)) return false;
+    if (/^[\w.\-/:@\[\]{}<>*+=#$%~^|]+$/.test(text.trim())) return false;
+    const semMarcadores = text.replace(/\{[^}]*\}/g, '').replace(/\$\{[^}]*\}/g, '');
+    if (!/[A-Za-zÀ-ÿ]{2,}/.test(semMarcadores)) return false;
+    // Declaração de estilo ('color: ${color};') tem dois-pontos e ponto-e-vírgula, não frase.
+    if (/^[a-z-]+\s*:[^;]+;$/.test(semMarcadores.trim())) return false;
+    return text.trim().split(/\s+/).filter(w => /[A-Za-zÀ-ÿ]{2,}/.test(w)).length >= 2;
+}
+
+const fonteApplet = fs.readFileSync('applet/applet.js', 'utf8');
+const presos = [];
+for (const {text, start, end} of jsLiterals(fonteApplet)) {
+    const antes = fonteApplet.slice(Math.max(0, start - 24), start).replace(/\s+$/, '');
+    if (/(?:^|[^\w$])_(?:t|n|f)?\($|(?:^|[^\w$])N_\($/.test(antes)) continue;  // argumento de helper
+    const depois = fonteApplet.slice(end).replace(/^\s+/, '');
+    if (/[+]$/.test(antes) || depois.startsWith('+')) continue;                  // pedaço de concatenação
+    if (looksLikeProse(text)) presos.push(text);
+}
+assert.deepEqual(presos, [], 'prosa do painel fora do catálogo: ' + JSON.stringify(presos));
+// Testemunhas do crivo: sem elas o teste poderia estar vendo nada e passar por engano.
+assert(looksLikeProse('Saldo total disponivel'));
+assert(looksLikeProse('Refresh skipped'));
+assert(!looksLikeProse('balance'));
+assert(!looksLikeProse('{value} {currency}'));
+assert(!looksLikeProse('icon-symbolic'));
+assert(!looksLikeProse('Gtk.Settings'));
+console.log('Painel: nenhuma prosa fora do catálogo (' + jsLiterals(fonteApplet).length + ' literais conferidos)');
 
 // As instâncias do cruzamento de idioma também são removidas: cada uma tem o laço de idade.
 for (const extra of extras) extra.on_applet_removed_from_panel();

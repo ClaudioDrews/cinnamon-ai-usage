@@ -21,11 +21,14 @@ xgettext --from-code=UTF-8 --language=Python --keyword=_ --keyword=_t --keyword=
     -o "$WORK/backend.pot" backend/*.py
 # Sem --location: o arquivo que o gerador produz fica em diretório temporário e a
 # referência levaria o caminho desta máquina para dentro do catálogo versionado.
+# O instalador também fala com uma pessoa: entra na extração, com `_()` e `N_()`.
+xgettext --from-code=UTF-8 --language=Python --keyword=_ --keyword=N_ \
+    -o "$WORK/install.pot" install.py
 python3 scripts/xlet_strings.py > "$WORK/xlet_strings.py"
 xgettext --from-code=UTF-8 --language=Python --keyword=_ --no-location \
     -o "$WORK/xlet.pot" "$WORK/xlet_strings.py"
 
-msgcat -o "locale/$DOMAIN.pot" "$WORK/applet.pot" "$WORK/backend.pot" "$WORK/xlet.pot"
+msgcat -o "locale/$DOMAIN.pot" "$WORK/applet.pot" "$WORK/backend.pot" "$WORK/xlet.pot" "$WORK/install.pot"
 # A data de criação muda a cada execução e o .pot é versionado: fixada fora, rodar o
 # script de novo deixa a árvore limpa — idempotente se prova, não se afirma.
 sed -i '/^"POT-Creation-Date:/d' "locale/$DOMAIN.pot"

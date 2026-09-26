@@ -20,6 +20,7 @@ import json
 import re
 import struct
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,18 +46,37 @@ APPLET = ROOT / 'applet' / 'applet.js'
 PY_CALLS = {'_', '_t', 'N_'}
 PY_PLURALS = {'_n'}
 
-# Dívida declarada por arquivo: literais em português que o usuário lê e que ainda não
-# passam pelo catálogo (mensagem de erro dos provedores, rótulo de métrica, texto das
-# janelas). O número só muda em commit que traduz — conversão derruba, texto novo sem
-# catálogo estoura o teste no commit que o introduziu. Fase 2 zera esta tabela.
-PENDING_PROSE = {
-    'collector.py': 11,
-    'credentials.py': 6,
-    'credentials_window.py': 25,
-    'i18n.py': 0,
-    'providers.py': 59,
-    'window.py': 34,
+# Literais que PARECEM prosa e não são texto de tela. Nenhum deles é dívida: são nome de
+# serviço, molde de formatação ou erro de programação, e cada um vem com o motivo. A lista
+# é conferida por igualdade, então literal novo que pareça prosa falha no commit que o
+# introduz — nas DUAS línguas: o detector antigo só olhava caractere não-ASCII, e por isso
+# não via "Saldo", "Sem uso observado" nem texto em inglês fixo no código.
+NOT_PROSE = {
+    'collector.py': {},
+    'credentials.py': {
+        'Cinnamon AI Usage': 'nome do applet, gravado como rótulo da entrada no cofre',
+    },
+    'credentials_window.py': {
+        'Grok / xAI': 'nome de serviço, não texto traduzível',
+        'Nous Portal': 'nome de serviço, não texto traduzível',
+        'OpenCode Go': 'nome de serviço, não texto traduzível',
+    },
+    'i18n.py': {},
+    'providers.py': {
+        'Claude Code': 'nome de serviço, não texto traduzível',
+        'Codex app-server': 'nome de serviço, não texto traduzível',
+        'Grok / xAI': 'nome de serviço, não texto traduzível',
+        'Loopback only': 'erro de programação (ValueError), não texto de tela',
+        'Meta AI (Muse Code)': 'nome de serviço, não texto traduzível',
+        'Nous Portal': 'nome de serviço, não texto traduzível',
+        'OpenCode Go': 'nome de serviço, não texto traduzível',
+    },
+    'window.py': {},
 }
+
+# Um molde de formatação (data, hora, dinheiro) tem espaço e mais de uma palavra sem ser
+# frase: fica fora da conta pela forma, e por isso `i18n.py` não declara nenhum.
+FORMAT_ONLY = re.compile(r"^[\w.\-/:@\[\]{}<>*+=#$%~^|]+$")
 
 
 def decode(line):
@@ -184,6 +204,32 @@ def py_msgids(path):
     return singles, plurals, offences
 
 
+def persisted_msgids(path):
+    """msgids que foram feitos para FICAR GRAVADOS, com a linha de origem.
+
+    São os marcados com ``N_()`` (identificador que vai para o contrato/cache) e os passados
+    como ``message_id=``/``label_id=`` — os dois caminhos pelos quais um texto sai do código
+    e vira registro persistido.
+    """
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    achados = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.id if isinstance(node.func, ast.Name) else (
+            node.func.attr if isinstance(node.func, ast.Attribute) else '')
+        if name == 'N_' and node.args:
+            valor = node.args[0]
+            if isinstance(valor, ast.Constant) and isinstance(valor.value, str):
+                achados.append((valor.value, node.lineno))
+        for keyword in node.keywords:
+            if keyword.arg in ('message_id', 'label_id'):
+                valor = keyword.value
+                if isinstance(valor, ast.Constant) and isinstance(valor.value, str):
+                    achados.append((valor.value, node.lineno))
+    return achados
+
+
 def js_msgids(text):
     """msgids do applet: ``_()``, ``N_()`` e ``_n()``, com ``+`` de string juntado."""
     def literals(rest):
@@ -237,11 +283,36 @@ def source_calls():
     return singles, plurals, offences
 
 
-def prose_outside_catalog(path, known):
-    """Literais em português que o usuário lê e que ainda não passam pelo catálogo.
+def looks_like_prose(value):
+    """Este literal parece texto que uma pessoa lê?
 
-    Fora da conta ficam docstring, comentário (que não é literal) e o que já é msgid do
-    catálogo — a dívida é prosa portuguesa que ainda não tem tradução nenhuma.
+    A forma decide, não o alfabeto: duas ou mais palavras escritas, com letras de verdade
+    dos dois lados, separadas por espaço, numa linha só e sem ser um token técnico (nome de
+    campo, caminho, id, molde, código de status). É o que pega "Saldo total disponível",
+    "Sem uso observado" e um "Refresh" fixo no código — prosa portuguesa sem acento e prosa
+    inglesa que nunca trocaria de idioma, as duas invisíveis para o detector por acento.
+    """
+    if not isinstance(value, str) or len(value) < 4:
+        return False
+    if not re.search(r"[A-Za-zÀ-ÿ]", value) or '\n' in value or '\t' in value:
+        return False
+    if FORMAT_ONLY.match(value.strip()):
+        return False
+    # Só marcadores e pontuação ('{value} {currency}', ' · ') não é frase: sem tirar os
+    # marcadores, um molde de formatação com espaço passaria por prosa.
+    if not re.search(r"[A-Za-zÀ-ÿ]{2,}", re.sub(r'\{[^}]*\}', '', value)):
+        return False
+    palavras = [palavra for palavra in re.split(r'\s+', value.strip())
+                if re.search(r"[A-Za-zÀ-ÿ]{2,}", palavra)]
+    return len(palavras) >= 2
+
+
+def prose_outside_catalog(path, known):
+    """Literais que parecem prosa e não estão no catálogo, em qualquer idioma.
+
+    Fora da conta ficam docstring (documentação de quem mantém o código), comentário (que
+    não é literal), o que já é msgid do catálogo e o que não parece frase. Sobra exatamente
+    o que o usuário lê sem passar pela tradução.
     """
     tree = ast.parse(path.read_text(encoding='utf-8'))
     docstrings = set()
@@ -256,7 +327,7 @@ def prose_outside_catalog(path, known):
             continue
         if id(node) in docstrings or node.value in known:
             continue
-        if any(ord(char) > 127 for char in node.value):
+        if looks_like_prose(node.value):
             pending.append(node.value)
     return pending
 
@@ -318,15 +389,57 @@ class ExtractionTests(unittest.TestCase):
                             'msgid sem tradução: %r' % msgid)
 
     def test_prose_outside_the_catalog_is_declared(self):
+        """Nenhuma prosa fora do catálogo, e o que parece prosa está declarado com motivo.
+
+        A comparação é por igualdade: prosa nova — em português com ou sem acento, ou em
+        inglês — falha no commit que a introduz, e a lista declarada não pode crescer sem
+        alguém escrever por que aquele literal não é texto de tela.
+        """
         known = set(lookup())
-        found = {}
+        encontrado = {}
         for path in BACKEND:
-            pending = prose_outside_catalog(path, known)
-            if pending:
-                found[path.name] = len(pending)
-        declared = {name: count for name, count in PENDING_PROSE.items() if count}
-        self.assertEqual(found, declared,
-                         'prosa nova sem catálogo (traduza e ajuste PENDING_PROSE)')
+            pendentes = prose_outside_catalog(path, known)
+            if pendentes:
+                encontrado[path.name] = sorted(set(pendentes))
+        declarado = {nome: sorted(literais) for nome, literais in NOT_PROSE.items() if literais}
+        self.assertEqual(encontrado, declarado,
+                         'literal novo que parece prosa e não passa pelo catálogo')
+
+    def test_the_detector_sees_prose_without_accents_and_in_english(self):
+        """O detector é conferido por testemunhas: sem isto ele poderia não ver nada.
+
+        Três testemunhas de prosa — uma com acento, uma sem acento nenhum e uma em inglês —
+        e três de não-prosa: token técnico, molde de formatação e uma frase dentro de
+        docstring (que o detector tem de ignorar).
+        """
+        for texto in ('Cota crítica', 'Saldo total disponivel', 'Refresh skipped'):
+            self.assertTrue(looks_like_prose(texto), texto)
+        for texto in ('balance', 'stale', '{value} {currency}', 'XAI_TEAM_ID', '127.0.0.1'):
+            self.assertFalse(looks_like_prose(texto), texto)
+        amostra = tempfile.NamedTemporaryFile('w', suffix='.py', delete=False)
+        amostra.write('"""Docstring com prosa em português."""\n'
+                      'def f():\n'
+                      '    """Outra docstring com prosa."""\n'
+                      '    # comentário com prosa em português\n'
+                      '    return "Saldo total disponivel"\n')
+        amostra.close()
+        achados = prose_outside_catalog(Path(amostra.name), known=set())
+        Path(amostra.name).unlink()
+        self.assertEqual(achados, ['Saldo total disponivel'],
+                         'o detector tem de ver prosa sem acento e ignorar docstring')
+
+    def test_installer_messages_come_from_the_catalog(self):
+        """O instalador também fala com uma pessoa: a mensagem dele é msgid.
+
+        Fora do catálogo, quem instala em inglês lê português e quem instala em português
+        lê inglês — as duas coisas já aconteceram com o texto que ficava preso no código.
+        """
+        instalador = (ROOT/'install.py').read_text(encoding='utf-8')
+        self.assertNotIn("print('", instalador, 'mensagem do instalador presa no código')
+        for chave in ('Installed in:', 'Catalog installed in:',
+                      'Open the Cinnamon Applets settings and add AI usage to the panel.'):
+            self.assertIn(chave, instalador, chave)
+            self.assertIn(chave, catalog(), 'msgid do instalador fora do catálogo: %r' % chave)
 
 
 class CatalogTests(unittest.TestCase):
@@ -408,6 +521,26 @@ class CatalogTests(unittest.TestCase):
         options = set(schema['language']['options'].values())
         self.assertEqual(options - {'auto'}, set(i18n.LANGUAGES))
         self.assertEqual(schema['language']['default'], 'auto')
+
+    def test_persisted_identifiers_are_singular(self):
+        """Identificador gravado tem de ser entrada de forma única no catálogo.
+
+        O contrato não oferece seleção de plural em registro persistido: escolher a forma
+        exigiria o número, que o registro guardado não carrega. Um msgid plural gravado como
+        identificador sairia sempre na primeira forma — "1 dia" onde a coleta leu "3 dias" —
+        ou cairia no texto gravado sem ninguém entender por quê. Por isso a conversão usa
+        frase singular com o número por marcador.
+        """
+        plurais = {msgid for msgid, entrada in catalog().items() if entrada.get('plural')}
+        self.assertTrue(plurais, 'o catálogo não tem plural nenhum: o teste perdeu o sentido')
+        for path in BACKEND:
+            for msgid, linha in persisted_msgids(path):
+                self.assertNotIn(msgid, plurais,
+                                 '%s:%d identificador persistido é plural: %r'
+                                 % (path.name, linha, msgid))
+        # O painel também carrega identificador para o contrato (`N_`), e ali o crivo é o mesmo.
+        for msgid in re.findall(r"N_\(\s*'([^']+)'", APPLET.read_text(encoding='utf-8')):
+            self.assertNotIn(msgid, plurais, 'applet.js: identificador persistido é plural: %r' % msgid)
 
     def test_entry_points_activate_the_language(self):
         """`_()` sem activate devolve msgid: sem esta chamada a janela sai sempre em inglês."""
@@ -496,6 +629,10 @@ class LanguageResolutionTests(unittest.TestCase):
             ({'LANGUAGE': '   ', 'LANG': 'pt_BR.UTF-8'}, 'pt_BR'),
             ({'LANG': 'pt_BR.UTF-8'}, 'pt_BR'),
             ({'LANG': 'C'}, 'en'),
+            # Desvio deliberado do gettext nativo, documentado em docs/i18n.md: pedido explícito
+            # em LANGUAGE vale mesmo com LC_ALL=C. O applet exporta o idioma fixado por LANGUAGE
+            # justamente para os filhos, e painel e janela não podem discordar.
+            ({'LANGUAGE': 'pt_BR', 'LC_ALL': 'C', 'LANG': 'C'}, 'pt_BR'),
             ({'LANG': 'pt_BR.UTF-8@euro'}, 'pt_BR'),
             ({}, 'en'),
         )
