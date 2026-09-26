@@ -34,6 +34,7 @@ import xlet_strings
 
 CATALOG_DIR = ROOT / 'locale'
 PO = CATALOG_DIR / 'pt_BR.po'
+POT = CATALOG_DIR / (i18n.DOMAIN + '.pot')
 MO = CATALOG_DIR / 'pt_BR' / 'LC_MESSAGES' / (i18n.DOMAIN + '.mo')
 
 BACKEND = sorted((ROOT / 'backend').glob('*.py'))
@@ -475,6 +476,23 @@ class CatalogTests(unittest.TestCase):
         obsolete = [line for line in PO.read_text(encoding='utf-8').splitlines()
                     if line.startswith('#~')]
         self.assertEqual(obsolete, [], 'tradução obsoleta no catálogo (msgid não é mais extraído?)')
+
+    def test_template_header_is_the_one_the_store_uses(self):
+        # O `msgcat` que junta os quatro catálogos (applet, backend, xlet e instalador)
+        # empilha os quatro cabeçalhos quando ninguém os refaz: a linha `#-#-#-#-#` do
+        # merge e o `Project-Id-Version` repetido são a assinatura disso. O cabeçalho deste
+        # template segue o dos outros applets da loja — nome, domínio público, autor, ano,
+        # uuid com versão e o endereço de issues do Spices.
+        cabecalho = POT.read_text(encoding='utf-8').split('\n\n', 1)[0]
+        self.assertNotIn('#-#-#-#-#', cabecalho)
+        self.assertEqual(cabecalho.count('"Project-Id-Version:'), 1)
+        self.assertIn(f'"Project-Id-Version: {i18n.DOMAIN} ', cabecalho)
+        self.assertIn('"Report-Msgid-Bugs-To: '
+                      'https://github.com/linuxmint/cinnamon-spices-applets/issues',
+                      cabecalho)
+        # Sem data de criação: o .pot é versionado e a data mudaria a árvore a cada
+        # execução do i18n.sh.
+        self.assertNotIn('POT-Creation-Date', cabecalho)
 
     def test_plural_forms_are_complete(self):
         """nplurals do cabeçalho manda: entrada de plural com forma faltando não se vê a olho."""

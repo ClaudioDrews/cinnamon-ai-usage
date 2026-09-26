@@ -28,10 +28,13 @@ python3 scripts/xlet_strings.py > "$WORK/xlet_strings.py"
 xgettext --from-code=UTF-8 --language=Python --keyword=_ --no-location \
     -o "$WORK/xlet.pot" "$WORK/xlet_strings.py"
 
-msgcat -o "locale/$DOMAIN.pot" "$WORK/applet.pot" "$WORK/backend.pot" "$WORK/xlet.pot" "$WORK/install.pot"
-# A data de criação muda a cada execução e o .pot é versionado: fixada fora, rodar o
-# script de novo deixa a árvore limpa — idempotente se prova, não se afirma.
-sed -i '/^"POT-Creation-Date:/d' "locale/$DOMAIN.pot"
+# `--use-first`: o cabeçalho do primeiro catálogo vence, em vez de o msgcat empilhar os
+# quatro com as linhas "#-#-#-#-#" do merge. O cabeçalho final — no formato dos applets da
+# loja (nome, domínio público, autor, ano, uuid, versão e o endereço de issues do Spices)
+# — é escrito logo abaixo, e sem `POT-Creation-Date`: o .pot é versionado e a data mudaria
+# a árvore a cada execução. Idempotente se prova, não se afirma.
+msgcat --use-first -o "locale/$DOMAIN.pot" "$WORK/applet.pot" "$WORK/backend.pot" "$WORK/xlet.pot" "$WORK/install.pot"
+python3 scripts/pot_header.py "locale/$DOMAIN.pot" applet/metadata.json
 msgmerge --quiet --update --backup=none "locale/pt_BR.po" "locale/$DOMAIN.pot"
 mkdir -p "locale/pt_BR/LC_MESSAGES"
 msgfmt --check --statistics -o "locale/pt_BR/LC_MESSAGES/$DOMAIN.mo" locale/pt_BR.po
