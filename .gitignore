@@ -8,3 +8,6 @@ dist/
 # Notas locais de quem trabalha neste projeto: não fazem parte do applet distribuído
 # e não devem aparecer na árvore nem no histórico publicado.
 AGENTS.md
+
+# Árvore montada para o PR do Spices (scripts/spices.sh): material de trabalho, não do applet
+build/
