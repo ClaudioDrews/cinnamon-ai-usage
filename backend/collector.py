@@ -212,7 +212,7 @@ def demo():
                 continue
             metrics.append(metric(metric_id, label, "quota",
                                   percent=min(92, 12 + i * 7 + position * 9), window=window,
-                                  reset=time.time() + 3600 if window else None))
+                                  reset=time.time() + window / 3 if window else None))
         item = service(id_, source="Simulação — nenhum dado real", metrics=metrics)
         item.update(last_used_at=stamp(time.time()-i*900), recency_basis="observed_change")
         items.append(item)
