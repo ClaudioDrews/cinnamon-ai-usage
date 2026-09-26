@@ -18,11 +18,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # librsvg2-bin dá o rsvg-convert que o pacote usa para o ícone; python3-pil é exigência
-      # do validate-spice; gettext dá o msgfmt/xgettext que ele também chama.
+      # do validate-spice; gettext dá o msgfmt/xgettext que ele também chama; e as ligações GTK
+      # (mais o cofre) são o que o applet declara precisar — sem gir1.2-gtk-3.0 os testes das
+      # janelas nem carregam.
       - name: Dependências
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gettext librsvg2-bin python3-pil
+          sudo apt-get install -y -qq gettext librsvg2-bin python3-pil \
+            python3-gi gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 gir1.2-secret-1
 
       - name: Suíte (inglês)
         run: python3 -m unittest discover -s tests -v

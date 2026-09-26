@@ -35,10 +35,18 @@ import test_i18n  # noqa: E402  (a cobertura de msgid de tests/test_i18n.py, só
 
 
 def _importable_gi() -> bool:
+    """`import gi` não basta: sem o typelib do Gtk, `require_version` levanta ValueError.
+
+    Foi o CI que mostrou. A imagem do GitHub traz `python3-gi` e **não** traz `gir1.2-gtk-3.0`, e
+    a suíte inteira deixava de carregar por causa disso — o mesmo que acontece numa máquina com as
+    ligações pela metade. A pergunta aqui é a que as janelas fazem ao importar, não se `gi` existe.
+    """
     try:
         import gi  # noqa: F401
+        gi.require_version('Gtk', '3.0')
+        from gi.repository import Gio, GLib, Gtk, GdkPixbuf  # noqa: F401
         return True
-    except ImportError:
+    except (ImportError, ValueError):
         return False
 
 
