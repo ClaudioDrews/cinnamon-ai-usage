@@ -281,11 +281,15 @@ class CredentialsWindow(Gtk.ApplicationWindow):
 
     def _on_save_file(self, _button):
         path = self.file_entry.get_text().strip()
-        if path and not Path(path).expanduser().is_file():
-            self._inform("O caminho indicado não é um arquivo existente.", Gtk.MessageType.WARNING)
-            return
         self.config["credentials_path"] = path
-        self._save_config("Caminho do arquivo de credenciais atualizado.")
+        self._save_config(self._path_message("Caminho do arquivo de credenciais atualizado.", path))
+
+    @staticmethod
+    def _path_message(done, path):
+        """Caminho que ainda não existe é aceito: o arquivo pode ser criado depois."""
+        if path and not Path(path).expanduser().is_file():
+            return f"{done} O arquivo indicado ainda não existe."
+        return done
 
     def _on_save_team(self, _button):
         valor = self.team_entry.get_text().strip()
@@ -303,16 +307,13 @@ class CredentialsWindow(Gtk.ApplicationWindow):
 
     def _on_save_token(self, _button, service, entry):
         path = entry.get_text().strip()
-        if path and not Path(path).expanduser().is_file():
-            self._inform("O arquivo de token indicado não existe.", Gtk.MessageType.WARNING)
-            return
         token_files = dict(self.config.get("token_files") or {})
         if path:
             token_files[service] = path
         else:
             token_files.pop(service, None)
         self.config["token_files"] = token_files
-        self._save_config(f"Arquivo de token do {service} atualizado.")
+        self._save_config(self._path_message(f"Arquivo de token do {service} atualizado.", path))
 
     def _save_config(self, message):
         try:
@@ -334,11 +335,19 @@ class CredentialsWindow(Gtk.ApplicationWindow):
             label.set_text(source_of(variable, self.config))
         path = self.config.get("credentials_path")
         if path:
-            found = credentials.read_file(path)
+            discarded = []
+            found = credentials.read_file(path, discarded)
             expected = [variable for _s, _l, variable, _h in KEY_SERVICES]
-            self.file_status.set_text(f"{path} — {sum(1 for v in expected if found.get(v))} "
-                                      f"de {len(expected)} variáveis esperadas encontradas; "
-                                      "outras variáveis ficam disponíveis para os conectores.")
+            status = (f"{path} — {sum(1 for v in expected if found.get(v))} "
+                      f"de {len(expected)} variáveis esperadas encontradas; "
+                      "outras variáveis ficam disponíveis para os conectores.")
+            if not Path(path).expanduser().is_file():
+                status = f"{path} — arquivo ainda não existe."
+            elif discarded:
+                # "Não configurado" sem causa confunde: diga qual linha foi ignorada e por quê.
+                motivos = ", ".join(f"{name} ({reason})" for name, reason in discarded)
+                status += f" Linha(s) ignorada(s) por sintaxe: {motivos}."
+            self.file_status.set_text(status)
         else:
             self.file_status.set_text("Nenhum arquivo indicado.")
         if hasattr(self, "team_status"):

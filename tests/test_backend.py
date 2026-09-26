@@ -535,6 +535,50 @@ class HistoryTests(unittest.TestCase):
         self.assertIn('_identity', self.old)
 
 
+class CredentialFileTests(unittest.TestCase):
+    """Arquivo NOME=VALOR: valor sem aspas é literal, e o descartado vem com motivo."""
+
+    def test_hash_inside_an_unquoted_value_survives(self):
+        # Chave de API com '#' era cortada em silêncio pelo leitor anterior.
+        self.assertEqual(p.credentials.parse_assignments('KEY=sk-abc#def\n'),
+                         {'KEY': 'sk-abc#def'})
+
+    def test_comment_still_needs_whitespace_before_the_hash(self):
+        self.assertEqual(p.credentials.parse_assignments('KEY=valor  # nota\n'), {'KEY': 'valor'})
+        self.assertEqual(p.credentials.parse_assignments('# KEY=ignorado\n'), {})
+
+    def test_spaces_and_apostrophes_are_kept_literally(self):
+        self.assertEqual(p.credentials.parse_assignments('KEY=value with spaces\n'),
+                         {'KEY': 'value with spaces'})
+        self.assertEqual(p.credentials.parse_assignments("KEY=it's-a-token\n"),
+                         {'KEY': "it's-a-token"})
+
+    def test_quoted_values_follow_shell_rules(self):
+        self.assertEqual(p.credentials.parse_assignments('KEY="com # hash"\n'),
+                         {'KEY': 'com # hash'})
+        self.assertEqual(p.credentials.parse_assignments("KEY='solto'\n"), {'KEY': 'solto'})
+        self.assertEqual(p.credentials.parse_assignments('KEY="$(touch nao-deve-existir)"\n'),
+                         {'KEY': '$(touch nao-deve-existir)'})  # sem shell, literal
+
+    def test_discarded_lines_come_with_a_reason(self):
+        motivos = []
+        got = p.credentials.parse_assignments('KEY="sem-fecho\nOK=valor\n', motivos)
+        self.assertEqual(got, {'OK': 'valor'})
+        self.assertEqual(motivos, [('KEY', 'aspas não fechadas')])
+        motivos.clear()
+        p.credentials.parse_assignments('KEY="a" "b"\n', motivos)
+        self.assertEqual(motivos, [('KEY', 'mais de um valor entre aspas')])
+
+    def test_read_file_reports_discarded_lines_without_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'secrets.env'
+            path.write_text('BOM=1\nRUIM="sem-fecho\n')
+            motivos = []
+            self.assertEqual(p.credentials.read_file(str(path), motivos), {'BOM': '1'})
+            self.assertEqual(motivos, [('RUIM', 'aspas não fechadas')])
+            self.assertEqual(p.credentials.read_file(str(Path(tmp)/'nao-existe'), motivos), {})
+
+
 class LockNoticeTests(unittest.TestCase):
     """Trava ocupada é aviso, não falha: o applet precisa distinguir "pulei" de "falhei"."""
 

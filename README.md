@@ -67,7 +67,7 @@ Para desinstalar, remova primeiro o applet do painel e apague somente o diretór
 As preferências do Cinnamon não guardam segredos. Cada variável é procurada nesta ordem:
 
 1. **Cofre do sistema** (Secret Service / gnome-keyring) — é onde a janela **Credenciais…** grava o que a pessoa digita. Nada é exibido de volta: a janela só informa de onde o valor viria.
-2. **Arquivo indicado por você** em `config.json`, na chave `credentials_path`, no formato `NOME=VALOR` — qualquer caminho (`~/.env`, `~/.config/secrets.env`, o que você usar). O arquivo é lido sem shell: `$(...)` e crases ficam literais.
+2. **Arquivo indicado por você** em `config.json`, na chave `credentials_path`, no formato `NOME=VALOR` — qualquer caminho (`~/.env`, `~/.config/secrets.env`, o que você usar). O arquivo é lido sem shell: `$(...)` e crases ficam literais. Sem aspas, o valor vale exatamente como está escrito — `KEY=sk-abc#def` guarda `sk-abc#def`, porque `#` só começa comentário depois de espaço. Com aspas, valem as regras do shell, inclusive escape (`KEY="com # dentro"`, `KEY="aspa\"dupla"`). Linha sem `=` ou com aspas não fechadas é ignorada — e a janela de credenciais lista quais foram ignoradas e por quê, para “não configurado” nunca aparecer sem causa.
 3. **Variáveis de ambiente** do processo.
 
 Para serviços que autenticam por login, e não por chave, `token_files` aponta um JSON; o primeiro `access_token` encontrado, em qualquer nível, é usado (nunca copiado para o cache).

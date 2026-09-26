@@ -47,10 +47,38 @@ TOKEN_SERVICES = ("nous",)
 ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
-def parse_assignments(text):
+def _value_and_comment(raw):
+    """Valor e comentário, com a mesma regra do shell para ``#``.
+
+    O ``#`` só começa comentário no início da linha ou depois de espaço; colado ao valor (como
+    em ``KEY=sk-abc#def``) ele faz parte do valor, e as aspas protegem o ``#`` que estiver
+    dentro delas. O leitor anterior usava ``shlex`` com comentários e cortava o resto do valor
+    em silêncio — chave de API com ``#`` virava chave errada.
+    """
+    out, index, quote = [], 0, None
+    while index < len(raw):
+        char = raw[index]
+        if quote:
+            if quote == "\"" and char == "\\" and index + 1 < len(raw):
+                out.append(char); out.append(raw[index + 1]); index += 2; continue
+            if char == quote:
+                quote = None
+            out.append(char); index += 1; continue
+        if char in ("'", "\""):
+            quote = char; out.append(char); index += 1; continue
+        if char == "#" and (index == 0 or raw[index - 1] in " \t"):
+            break
+        out.append(char); index += 1
+    return "".join(out).strip()
+
+
+def parse_assignments(text, discarded=None):
     """Extrai NOME=VALOR de um arquivo de credenciais, sem executar shell.
 
-    Aspas simples ou duplas são removidas; um valor com $(...) ou crases permanece literal.
+    Sem aspas, o valor é usado exatamente como veio (espaços internos inclusive). Com aspas,
+    valem as regras do shell — inclusive escape — e só um valor único é aceito. Linhas
+    descartadas entram em ``discarded`` como (nome, motivo), para a interface poder dizer por
+    que um serviço continua não configurado em vez de mostrar "não configurado" sem causa.
     """
     values = {}
     for line in (text or "").splitlines():
@@ -58,20 +86,34 @@ def parse_assignments(text):
         if not match:
             continue
         name, raw = match.group(1), match.group(2)
-        try:
-            parts = shlex.split(raw, comments=True, posix=True)
-        except ValueError:
+        value = _value_and_comment(raw)
+        if not value:
             continue
-        if len(parts) == 1:
+        if value[0] in ("'", "\""):
+            try:
+                parts = shlex.split(value, comments=False, posix=True)
+            except ValueError:
+                _discard(discarded, name, "aspas não fechadas")
+                continue
+            if len(parts) != 1:
+                _discard(discarded, name, "mais de um valor entre aspas")
+                continue
             values[name] = parts[0]
+        else:
+            values[name] = value
     return values
 
 
-def read_file(path):
+def _discard(discarded, name, reason):
+    if discarded is not None:
+        discarded.append((name, reason))
+
+
+def read_file(path, discarded=None):
     if not path:
         return {}
     try:
-        return parse_assignments(Path(path).expanduser().read_text())
+        return parse_assignments(Path(path).expanduser().read_text(), discarded)
     except OSError:
         return {}
 
