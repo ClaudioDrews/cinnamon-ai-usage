@@ -2,6 +2,8 @@
 
 # Uso de IA para Cinnamon
 
+![Banner em pixel art do Cinnamon AI Usage: um robô de tela verde numa mesa à noite, três monitores com consultas de cota, gráfico de uso e código, um menu com Uso de IA selecionado e uma barra do painel com a porcentagem de cada serviço](docs/banner.png)
+
 Versão 0.2.0. Applet local para consultar cotas, gastos e saldos de serviços de IA no Linux Mint Cinnamon.
 
 - **Clique simples:** até cinco serviços, primeiro os com uso observado e depois os de leitura mais recente (quem não tem leitura não ocupa linha).
@@ -37,10 +39,10 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 | OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; sem teto na chave, nenhuma barra inventada |
 | Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: créditos do plano e modelos nomeados |
 | Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
-| Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada responde; em 26/09/2026 a rota devolveu os metadados da conta **sem** o bloco de uso, preservando a última leitura. Veja a seção do serviço |
-| Claude Code | Janela de 5 h e semanal da assinatura (e janelas por modelo, quando vierem) | **Não verificada**: sem conta Anthropic nesta máquina; rota e formato vêm da documentação pública da comunidade |
+| Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada OK, as duas janelas; em 26/09/2026 a rota falhou uma vez e devolveu os metadados da conta **sem** o bloco de uso (leitura anterior preservada), voltando a responder nas leituras seguintes. Veja a seção do serviço |
+| Claude Code | Janela de 5 h e semanal da assinatura (e janelas por modelo, quando vierem) | **Não verificada**: sem conta Anthropic nesta máquina; rota, cabeçalho, campo de credencial e escala 0–100 coincidem com os de um applet já aceito na loja (`claude-usage@mtwebster`), o que não é o mesmo que medir aqui |
 
-O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta. O conector do Claude Code é o único publicado **sem verificação em conta real** — está implementado, testado contra o formato documentado e rotulado como não verificado; a seção dele explica o que falta e como relatar.
+O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta. O conector do Claude Code é o único publicado **sem verificação em conta real** — está implementado, testado contra o formato que um applet já aceito na loja usa e rotulado como não verificado; a seção dele explica o que falta e como relatar.
 
 [Prévia da janela com dados fictícios](docs/demo.pt-BR.png)
 
@@ -66,6 +68,20 @@ python3 backend/collector.py diag <serviço>    # nomes de campos e faixas, sem 
 ```
 
 Demo não lê credenciais nem altera o cache. A coleta real não faz inferência, compras, recargas ou mudanças de plano.
+
+## Spices
+
+**Ainda não está na loja.** O pacote está pronto e passa no validador da própria loja; o pull request é o próximo passo. Enquanto ele não for aceito, instale por este repositório — seção seguinte.
+
+O que espera lá:
+
+- o applet aparece em **Configurações do sistema → Applets**, aba **Download**, como *Uso de IA*, com o ícone do robô e a descrição no idioma da sessão;
+- a tradução é serviço do instalador da loja: ele compila `po/pt_BR.po` para `~/.local/share/locale`, que é onde o applet procura quando o `locale/` do próprio projeto não está lá. É isso que coloca a janela de Preferências e a lista de applets no idioma da sessão;
+- as chaves continuam vindo da janela **Credenciais…** (cofre do sistema) ou do arquivo que você indicar — nada muda no caminho das credenciais.
+
+O pacote é montado por `sh scripts/spices.sh`, com saída em `build/spice/`, seguindo o que o validador oficial da loja (`validate-spice`) exige: só `files/<uuid>/` é instalado, `icon` é campo proibido no `metadata.json`, `icon.png` é PNG quadrado, e o catálogo vai como fonte — o `.mo` compilado é recusado, porque quem compila é o instalador da loja.
+
+Uma ressalva para quem baixar o ZIP do site da loja e copiar à mão, sem deixar o Cinnamon instalar: nesse caminho nada compila o `.po`, então a janela de Preferências e a lista de applets ficam em inglês. Instalando pelo Cinnamon — ou rodando `python3 install.py` — isso não acontece.
 
 ## Instalar para o usuário
 
@@ -116,13 +132,15 @@ Quando houver consumo de crédito pré-pago, a segunda linha do serviço mostra 
 
 A management key é uma credencial poderosa: ela cria e revoga chaves de API e mexe em cobrança. Guarde-a no cofre, não em arquivo versionado.
 
-Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, o Muse Code usa o dele (`muse login`) em `~/.config/muse/auth.json` e o Claude Code usa o do `claude /login` em `~/.claude/.credentials.json`; nenhum dos três aparece na janela de credenciais, porque o arquivo é encontrado pelo caminho padrão do próprio aplicativo. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE.
+Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, o Muse Code usa o dele (`muse login`) em `~/.config/muse/auth.json` e o Claude Code usa o do `claude /login` em `~/.claude/.credentials.json`; nenhum dos três aparece na janela de credenciais, porque o arquivo é encontrado pelo caminho padrão do próprio aplicativo. Antigravity é sondado somente no loopback e exige o servidor da IDE em execução; não confunda `ANTIGRAVITY_API_KEY` com o login da IDE. A sondagem é local e vale saber o que ela faz: lê o `--csrf_token` da IDE na linha de comando do processo (`/proc/<pid>/cmdline`), descobre a porta de escuta com `ss` e fala HTTPS com o loopback **sem verificar o certificado** — só `127.0.0.1`, e sem proxy, para o token não vazar por um. Para um servidor da sua própria IDE na sua própria máquina isso é defensável, e é também por isso que este é o conector mais frágil do conjunto: ele depende de uma interface que a IDE não publica e que pode mudar.
 
 ### Assinatura do Muse Code (Meta)
 
 A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `used_percent` no arquivo local — o painel `/cost` vive só na memória do cliente. O que funciona é a chamada que o próprio cliente faz ao subir, `POST https://api.meta.ai/muse-code/key`, com o token OAuth do `muse login`. Ela devolvia `subs_usage` com a janela corrente (`used_percent`, `window_duration_mins`, `resets_at` em epoch) e a semanal — veja o estado atual logo abaixo.
 
-**Estado em 26/09/2026 — a rota parou de devolver o bloco de uso.** A leitura das 16:59:16Z trouxe as duas janelas com percentuais; a tentativa das 17:17:48Z, na mesma rota, devolveu só os metadados da conta e da assinatura (chave, e-mail, tier, situação da assinatura — `is_subs_active` verdadeiro, sem exigência de pagamento) e **nenhum** `subs_usage`. O conector fez o que devia: marcou a tentativa como falha, preservou a leitura anterior e a mostrou como leitura antiga por falha, em vez de reaproveitá-la como leitura boa. Isso é o que a resposta mostrou; **não** é prova de que a Meta mudou a rota — pode ser mudança do lado dela, algum estado que a chamada agora carrega, ou variação entre chamadas. O que separa as hipóteses é o relatório do `diag meta` (abaixo), que diz quais campos vieram e quais dos esperados faltaram.
+**Estado em 26/09/2026 — a rota oscilou e voltou a responder.** A leitura das 16:59:16Z trouxe as duas janelas com percentuais; a tentativa das 17:17:48Z, na mesma rota, devolveu só os metadados da conta e da assinatura (chave, e-mail, tier, situação da assinatura — `is_subs_active` verdadeiro, sem exigência de pagamento) e **nenhum** `subs_usage`; as leituras seguintes trouxeram as duas janelas de novo — a que está no cache é das 21:05:51Z, e o `diag meta` responde `"consulta": "ok"` com as duas janelas reconhecidas. Ou seja: uma tentativa que falhou, não uma rota que parou de funcionar.
+
+No meio disso o conector fez o que devia: marcou a tentativa como falha, preservou a leitura anterior e a mostrou como leitura antiga por falha, em vez de reaproveitá-la como leitura boa. Se voltar a acontecer, vai parecer assim de novo — e o relatório do `diag meta` (abaixo) é o que diz quais campos vieram e quais dos esperados faltaram.
 
 Duas coisas que você deve saber antes de habilitar:
 
@@ -154,7 +172,7 @@ Se você mantém mais de uma versão do Muse Code com logins em arquivos diferen
 
 ### Assinatura do Claude Code
 
-As janelas da assinatura do Claude Code vêm de `GET https://api.anthropic.com/api/oauth/usage`, com `Authorization: Bearer <token do login>` e `anthropic-beta: oauth-2025-04-20`. É a mesma rota que a CLI usa no comando `/usage` e que os projetos de acompanhamento da CLI documentaram; a Anthropic não a publica como API, então ela é tratada como algo que pode mudar.
+As janelas da assinatura do Claude Code vêm de `GET https://api.anthropic.com/api/oauth/usage`, com `Authorization: Bearer <token do login>` e `anthropic-beta: oauth-2025-04-20`. É a mesma rota que a CLI usa no comando `/usage`, e a que o applet [`claude-usage@mtwebster`](https://github.com/linuxmint/cinnamon-spices-applets/tree/master/claude-usage@mtwebster) — já aceito na loja — usa com exatamente estes cabeçalhos e este campo de credencial, lendo `utilization` como percentual de 0 a 100. A Anthropic não a publica como API, então ela é tratada como algo que pode mudar.
 
 **Termos de uso.** A Anthropic diz que a autenticação por OAuth é destinada *exclusivamente* aos planos Free, Pro, Max, Team e Enterprise e a sustentar o uso comum do Claude Code e de outros aplicativos nativos dela; que desenvolvedores terceiros não podem rotear pedidos por essas credenciais; e que reserva o direito de aplicar isso [sem aviso prévio](https://code.claude.com/docs/en/legal-and-compliance). Os Termos de Consumo também proíbem o acesso automatizado aos serviços, exceto com chave de API ([§3.7](https://www.anthropic.com/legal/consumer-terms)). Este conector não oferece login, não guarda nem repassa o token — o pedido sai da sua máquina direto para a Anthropic — e não gasta cota. Ainda assim é uma ferramenta de terceiro lendo a sua conta com a credencial que a CLI já mantém, o que não é o uso previsto nesses termos: ativá-lo é decisão de quem ativa, na própria conta e por conta e risco próprios.
 
@@ -175,6 +193,8 @@ Isto serve a quem tem assinatura **Pro, Max, Team ou Enterprise**: quem usa só 
 - se a rota aceita `Bearer` com o token do login (a sondagem com token inválido devolveu 401 e o corpo reclamou de `x-api-key`, o que só um token real esclarece);
 - se o `.credentials.json` atual mantém `claudeAiOauth.accessToken`, e se o pedido precisa de outro `anthropic-beta`;
 - se o percentual vem mesmo em 0–100, premissa da decisão de não rescalar.
+
+Nenhum dos três foi medido daqui: são o que um applet já aceito na loja exercita em produção, e é por isso que este conector os segue. O rótulo **não verificada** continua até que alguém meça em conta real — nenhuma referência externa substitui isso.
 
 Se você tem conta e o serviço não mostrar nada, relate no GitHub com a saída de:
 
@@ -222,6 +242,7 @@ GI_TYPELIB_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muf
 LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/cinnamon:/usr/lib/x86_64-linux-gnu/muffin \
 cjs tests/check_cjs_api.js
 python3 -m compileall -q backend
+sh scripts/spices.sh   # monta o pacote da loja de applets em build/spice/
 python3 tests/smoke_gtk.py /tmp/ai-usage-demo.png  # requer sessão gráfica
 ```
 
