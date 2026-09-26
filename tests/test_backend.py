@@ -604,6 +604,93 @@ class DemoAndVersionTests(unittest.TestCase):
         self.assertNotIn('0.1.0', (raiz/'backend/providers.py').read_text())
 
 
+class _FakeProc:
+    """Worker de mentira: parece vivo no poll e já morreu quando a limpeza tenta o sinal."""
+
+    def __init__(self, payload):
+        self.pid, self.returncode, self.stdout = 4242, 0, None
+        self._payload = payload
+
+    def communicate(self, timeout=None):
+        return self._payload, b''
+
+    def poll(self):
+        return None
+
+    def wait(self, timeout=None):
+        return 0
+
+
+class HygieneTests(unittest.TestCase):
+    """Higiene antes de publicar: TTL do read, corrida na limpeza, fuso e instalador."""
+
+    def _snapshot(self, diretorio, read_at):
+        cache = Path(diretorio)/'cinnamon-ai-usage'
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache/'snapshot.json').write_text(json.dumps({
+            'schema_version': 1, 'generated_at': p.stamp(),
+            'services': [{'id': 'codex', 'label': 'Codex', 'status': 'ok', 'message': '',
+                          'source': 'teste', 'read_at': read_at, 'last_used_at': None,
+                          'recency_basis': 'unknown', 'metrics': []}]}))
+        return cache
+
+    def _config(self, diretorio, refresh_seconds):
+        pasta = Path(diretorio)/'config'/'cinnamon-ai-usage'
+        pasta.mkdir(parents=True, exist_ok=True)
+        (pasta/'config.json').write_text(json.dumps({'refresh_seconds': refresh_seconds}))
+
+    def test_read_command_follows_the_configured_ttl(self):
+        # Leitura de 10 min atrás: dentro de um TTL de 3600, fora de um de 30.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._snapshot(tmp, p.stamp(time.time()-600))
+            self._config(tmp, 3600)
+            ambiente = {**os.environ, 'XDG_CACHE_HOME': tmp, 'XDG_CONFIG_HOME': str(Path(tmp)/'config')}
+
+            def read():
+                coletor = Path(__file__).resolve().parents[1]/'backend'/'collector.py'
+                saida = subprocess.run([sys.executable, str(coletor), 'read'], capture_output=True,
+                                       text=True, env=ambiente)
+                return json.loads(saida.stdout)['services'][0]['status']
+
+            self.assertEqual(read(), 'ok')
+            self._config(tmp, 30)
+            self.assertEqual(read(), 'stale')
+
+    def test_cleanup_survives_a_worker_that_already_exited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = json.dumps(p.service('codex', 'ok', '', 'teste', [])).encode()
+            with patch.dict(os.environ, {'XDG_CACHE_HOME': tmp}, clear=False), \
+                 patch.object(c.subprocess, 'Popen', side_effect=lambda *a, **k: _FakeProc(payload)), \
+                 patch.object(c.os, 'killpg', side_effect=ProcessLookupError):
+                resultado = c.collect(force=True)
+            self.assertTrue(resultado['generated_at'].endswith('Z'))
+            self.assertEqual([s['status'] for s in resultado['services'] if s['id'] == 'codex'], ['ok'])
+            # Nada de "Falha ao ler configuração": a corrida no encerramento não é erro de leitura.
+            self.assertNotIn('Falha ao ler configuração', json.dumps(resultado))
+
+    def test_naive_timestamp_is_read_as_utc(self):
+        # Antes a data sem fuso sumia em silêncio (o campo reset_at desaparecia).
+        self.assertEqual(p.stamp('2026-09-26T10:00:00'), '2026-09-26T10:00:00Z')
+        self.assertEqual(p.stamp('2026-09-26T10:00:00-03:00'), '2026-09-26T13:00:00Z')
+        self.assertIsNone(p.stamp('ontem'))
+
+    def test_install_leaves_no_phantom_applet_and_a_readable_tree(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import install
+        with tempfile.TemporaryDirectory() as tmp:
+            applets = Path(tmp)/'applets'
+            alvo = install.install(str(applets))
+            self.assertEqual(sorted(pasta.name for pasta in applets.iterdir()), [install.UUID])
+            self.assertEqual(stat.S_IMODE(alvo.stat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE((alvo/'backend').stat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE((alvo/'applet.js').stat().st_mode), 0o644)
+            self.assertTrue((alvo/'backend/collector.py').is_file())
+            self.assertTrue((alvo/'assets/robot-head-symbolic.svg').is_file())
+            install.install(str(applets))  # segunda vez: a anterior vai para backup
+            self.assertEqual(sorted(pasta.name for pasta in applets.iterdir()), [install.UUID])
+            self.assertEqual(len(list((Path(tmp)/'ai-usage-backups').iterdir())), 1)
+
+
 class LockNoticeTests(unittest.TestCase):
     """Trava ocupada é aviso, não falha: o applet precisa distinguir "pulei" de "falhei"."""
 

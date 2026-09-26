@@ -45,6 +45,8 @@ Verificação declarada: implementado e coberto por testes offline contra o form
 
 ## Detalhes de implementação
 
+Datas: `read_at`, `generated_at`, `last_used_at` e `reset_at` saem sempre em ISO-8601 UTC com `Z`. A origem pode mandar epoch em segundos ou milissegundos, ou ISO-8601 com ou sem fuso — ISO sem fuso é lida como UTC, por convenção declarada (nunca descartada em silêncio).
+
 `collect --ttl N` permite ao applet passar seu intervalo (30–3600 s). `worker ID` é um comando interno, limitado a 30 s, executado em paralelo pelo coletor. Se já houver coleta em andamento, `collect` não espera e não força: devolve as últimas leituras com o campo público `notice` ("Atualização ignorada: já há uma coleta em andamento; os valores são os últimos lidos."). É aviso, não erro — nenhum serviço vira falha por causa disso, e o `notice` é do momento, nunca gravado no snapshot. O snapshot privado tem `_identity` (digest da identidade da conta/chave) para reiniciar a comparação quando a conta muda; `collect/read` removem esse campo antes de imprimir. `demo` nunca usa cache ou credenciais.
 
 Uma consulta de cota só produz recência quando o percentual aumenta na mesma janela/reset. Saldos só produzem recência aproximada quando diminuem; valores de gasto quando aumentam. Não há afirmação de horário exato nem atribuição a um agente. UI não altera ordenação durante o menu aberto; reabrir aplica a nova leitura. Credenciais são lidas somente pelos trabalhadores de seus respectivos provedores.

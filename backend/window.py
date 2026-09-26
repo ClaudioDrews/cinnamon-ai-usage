@@ -236,6 +236,22 @@ def window_text(metric: dict) -> str:
     return f"Janela: {format_duration(seconds)}"
 
 
+def window_extra(metric: dict, label: str = "") -> str:
+    """Duração da janela para a linha de detalhes, quando o rótulo ainda não a diz.
+
+    O contrato traz `window_seconds`; sem isto a duração só aparecia quando o próprio rótulo
+    da origem a mencionava ("Janela de 5 h") e sumia em rótulos como "Janela móvel".
+    """
+    text = window_text(metric)
+    if not text:
+        return ""
+    seconds = metric.get("window_seconds")
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        return text
+    duration = format_duration(seconds)
+    return "" if duration and duration in label else text
+
+
 def python_executable() -> str:
     """python3 do PATH, como no contrato; cai para o interpretador atual."""
     return shutil.which("python3") or sys.executable
@@ -689,7 +705,7 @@ class UsageWindow(Gtk.ApplicationWindow):
                 bar.set_show_text(False)
                 bar.set_tooltip_text(f"{format_number(used_percent, 1)}% da quota usada")
                 row.pack_start(bar, False, False, 0)
-            extras = [part for part in (reset_text(metric),) if part]
+            extras = [part for part in (window_extra(metric, label), reset_text(metric)) if part]
             if extras:
                 self._add_line(row, " · ".join(extras), dim=True)
         elif kind == "balance":

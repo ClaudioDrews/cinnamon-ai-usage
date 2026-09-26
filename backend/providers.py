@@ -64,7 +64,10 @@ def stamp(value=None):
         if isinstance(value, str) and not value.isdigit():
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
             if dt.tzinfo is None:
-                return None
+                # Antes a data sem fuso era descartada em silêncio e o campo desaparecia sem
+                # rastro. A convenção do projeto é UTC em tudo que sai daqui, então a data sem
+                # fuso é lida como UTC — regra declarada no contrato, não adivinhação.
+                dt = dt.replace(tzinfo=timezone.utc)
         else:
             n = float(value)
             if n > 1e12:

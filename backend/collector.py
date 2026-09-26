@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 from providers import SERVICES, collect_provider, diagnose, number, service, stamp, metric, read_json
 
@@ -43,6 +43,12 @@ def valid_snapshot(data):
 def load_snapshot(path):
     data = read_json(path)
     return data if valid_snapshot(data) else empty_snapshot()
+
+
+def effective_ttl(config, ttl_override=None):
+    """TTL em vigor: o da consulta, senão o da configuração, senão 120 s (contrato 30–3600)."""
+    ttl = number(ttl_override) or number((config or {}).get("refresh_seconds")) or 120
+    return max(30, min(3600, ttl))
 
 
 def stale_read(snapshot, ttl=120):
@@ -112,8 +118,7 @@ def collect(force=False, ttl_override=None):
     os.chmod(cache, 0o700)
     path = cache/"snapshot.json"
     config = read_json(config_path)
-    ttl = number(ttl_override) or number(config.get("refresh_seconds")) or 120
-    ttl = max(30, min(3600, ttl))
+    ttl = effective_ttl(config, ttl_override)
     lock_fd = os.open(cache/"collect.lock", os.O_CREAT | os.O_RDWR, 0o600)
     with os.fdopen(lock_fd, "w") as lock:
         try:
@@ -153,10 +158,19 @@ def collect(force=False, ttl_override=None):
         finally:
             for proc in pending.values():
                 if proc.poll() is None:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try: proc.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL); proc.wait()
+                    # Corrida real: o worker pode terminar entre o poll e o sinal. Sem esta
+                    # guarda, o ProcessLookupError sobe e a coleta inteira vira "falha ao ler
+                    # configuração ou gravar o cache" — mensagem que mente sobre a causa.
+                    for sig in (signal.SIGTERM, signal.SIGKILL):
+                        try:
+                            os.killpg(proc.pid, sig)
+                        except ProcessLookupError:
+                            break
+                        try:
+                            proc.wait(timeout=2)
+                            break
+                        except subprocess.TimeoutExpired:
+                            continue
                 if proc.stdout: proc.stdout.close()
         snapshot = {"schema_version": 1, "generated_at": stamp(),
                     "services": [merge_history(result[k], before.get(k)) for k in SERVICES]}
@@ -234,7 +248,10 @@ def main():
     elif args.command == "demo":
         result = demo()
     elif args.command == "read":
-        result = public(stale_read(load_snapshot(paths()[0]/"snapshot.json")))
+        # Mesma janela de validade do collect: ler o cache com TTL fixo marcava como antiga
+        # uma leitura que a configuração do applet ainda considera boa (contrato).
+        result = public(stale_read(load_snapshot(paths()[0]/"snapshot.json"),
+                                   effective_ttl(read_json(paths()[1]))))
     else:
         try:
             signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
