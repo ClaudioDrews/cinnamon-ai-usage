@@ -35,7 +35,13 @@ O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. 
 
 ## Executar sem instalar
 
-Requer Python 3, PyGObject/GTK3 e Cinnamon/CJS, já disponíveis no Mint deste projeto. Node serve apenas à verificação de JavaScript, não à execução do applet. Não há pacotes pip/npm.
+Requer Python 3, PyGObject/GTK3 e Cinnamon/CJS. Em distribuições derivadas do Debian/Ubuntu (Mint incluído):
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 librsvg2-common
+```
+
+`librsvg2-common` é quem rasteriza o SVG do robô na janela. Sem ele a janela continua abrindo, com um ícone do tema no lugar e um aviso no balão do ícone. O cofre do sistema é opcional (`gir1.2-secret-1`, já presente no Mint): sem ele, as chaves vêm do arquivo indicado ou do ambiente. Node serve apenas à verificação de JavaScript, não à execução do applet. Não há pacotes pip/npm.
 
 ```bash
 cd /caminho/do/repositorio

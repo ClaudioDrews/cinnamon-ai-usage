@@ -35,6 +35,56 @@ BACKEND_DIR = Path(__file__).resolve().parent
 COLLECTOR_PATH = BACKEND_DIR / COLLECTOR_NAME
 CREDENTIALS_WINDOW = BACKEND_DIR / "credentials_window.py"
 ICON_PATH = BACKEND_DIR.parent / "assets" / "robot-head-symbolic.svg"
+ICON_SIZE = 28
+WINDOW_ICON_SIZE = 128
+FALLBACK_ICON_NAME = "utilities-system-monitor"
+NEUTRAL_ICON_COLOR = "#999999"
+
+
+def _icon_color(widget):
+    """Cor de frente do tema, para desenhar o ícone simbólico do robô como o painel faz."""
+    try:
+        contexto = widget.get_style_context()
+    except AttributeError:
+        return None
+    for nome in ("theme_fg_color", "theme_text_color"):
+        try:
+            found, color = contexto.lookup_color(nome)
+        except (AttributeError, TypeError):
+            continue
+        if found and color is not None:
+            return "#%02x%02x%02x" % (round(color.red * 255), round(color.green * 255),
+                                      round(color.blue * 255))
+    return None
+
+
+def header_icon_pixbuf(widget, path=ICON_PATH, size=ICON_SIZE):
+    """Ícone do cabeçalho com a cor da interface.
+
+    O SVG é symbolic (``fill: currentColor``) e o ``GdkPixbuf`` não resolve ``currentColor``:
+    rasteriza em preto puro, que quase desaparece no cabeçalho escuro. Aqui a cor de frente do
+    tema é aplicada no próprio texto do SVG antes de carregar.
+
+    Sem carregador de SVG (pacote ``librsvg2-common`` ausente), devolve ``None``: quem chamou
+    usa um ícone do tema e a janela abre de qualquer forma — antes, a falta do pacote derrubava
+    a janela inteira na construção.
+    """
+    try:
+        svg = Path(path).read_text()
+    except OSError:
+        return None
+    svg = svg.replace("currentColor", _icon_color(widget) or NEUTRAL_ICON_COLOR)
+    loader = GdkPixbuf.PixbufLoader()
+    try:
+        loader.write(svg.encode())
+        loader.close()
+        pixbuf = loader.get_pixbuf()
+    except GLib.Error:
+        return None
+    if pixbuf is None:
+        return None
+    return pixbuf.scale_simple(size, size, GdkPixbuf.InterpType.BILINEAR)
+
 
 # Assinatura de status aceita pelo contrato.
 STATUS_LABELS = {
@@ -354,13 +404,21 @@ class UsageWindow(Gtk.ApplicationWindow):
         self._watchdog_id = 0
         self._snapshot = None
         self._last_update = None
-        self.set_icon_from_file(str(ICON_PATH))
 
         header = Gtk.HeaderBar(show_close_button=True)
         header.set_title(WINDOW_TITLE)
         header.set_subtitle(WINDOW_SUBTITLE)
-        icon = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(ICON_PATH), 28, 28, True)
-        header.pack_start(Gtk.Image.new_from_pixbuf(icon))
+        icon = header_icon_pixbuf(header)
+        if icon is not None:
+            header.pack_start(Gtk.Image.new_from_pixbuf(icon))
+            window_icon = header_icon_pixbuf(header, size=WINDOW_ICON_SIZE)
+            if window_icon is not None:
+                self.set_icon(window_icon)
+        else:
+            # Sem SVG legível (librsvg2-common ausente): ícone do tema no lugar, sem quebrar.
+            fallback = Gtk.Image.new_from_icon_name(FALLBACK_ICON_NAME, Gtk.IconSize.BUTTON)
+            fallback.set_tooltip_text("Para o robô do projeto, instale o pacote librsvg2-common")
+            header.pack_start(fallback)
         self.refresh_button = Gtk.Button.new_from_icon_name("view-refresh", Gtk.IconSize.BUTTON)
         self.refresh_button.set_tooltip_text("Atualizar agora (força nova coleta)")
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
