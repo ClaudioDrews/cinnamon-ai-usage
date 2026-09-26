@@ -40,6 +40,11 @@ CLAUDE_MIN_INTERVAL = 300
 META_KEY_URL = "https://api.meta.ai/muse-code/key"
 META_MIN_INTERVAL = 900
 
+# Texto de uma falha sem mensagem própria. O vocabulário do estado (`stale_reason`) e o texto
+# mostrado à pessoa vêm daqui, para a leitura reaproveitada de uma tentativa falha não aparecer
+# como "atualização pendente".
+QUOTA_FAILURE_MESSAGE = "A atualização mais recente deste serviço falhou; a leitura anterior é mantida."
+
 
 class Unavailable(Exception):
     def __init__(self, message, status="unavailable"):
@@ -504,8 +509,13 @@ def quota_age(value):
         return None
 
 
-def quota_read_cache(name, interval, identity):
-    """Leitura anterior do serviço, se for da mesma conta e ainda válida.
+def quota_reuse(name, interval, identity):
+    """Leitura anterior reaproveitável, com o desfecho da última tentativa.
+
+    Devolve ``{"read_at", "metrics", "failure"}`` quando existe leitura boa da mesma conta
+    dentro do intervalo mínimo; ``failure`` é a mensagem da última tentativa malsucedida, ou
+    ``None`` quando a última tentativa terminou bem. Devolve ``None`` quando não há leitura a
+    reaproveitar (ou o intervalo já passou).
 
     A validade é medida pela última **tentativa**, não só pela última leitura boa: depois de um
     erro (HTTP 429, por exemplo) a tentativa fica registrada e o intervalo mínimo continua
@@ -519,9 +529,21 @@ def quota_read_cache(name, interval, identity):
     if not isinstance(metrics, list) or not metrics or not isinstance(read_at, str):
         return None
     age = quota_age(data.get("attempted_at") or read_at)
-    if age is not None and age < interval:
-        return read_at, metrics
-    return None
+    if age is None or age >= interval:
+        return None
+    falha = None
+    if data.get("attempt_status") == "failure":
+        # O desfecho da última tentativa sobrevive à leitura reaproveitada: sem ele, o coletor
+        # classificava a leitura preservada como "atualização pendente" e a falha desaparecia
+        # da tela sem o serviço ter voltado.
+        falha = text(data.get("attempt_message"), QUOTA_FAILURE_MESSAGE, 200)
+    return {"read_at": read_at, "metrics": metrics, "failure": falha}
+
+
+def quota_read_cache(name, interval, identity):
+    """Leitura anterior do serviço, se for da mesma conta e ainda válida."""
+    cached = quota_reuse(name, interval, identity)
+    return (cached["read_at"], cached["metrics"]) if cached else None
 
 
 def quota_attempt_recent(name, interval, identity):
@@ -533,7 +555,7 @@ def quota_attempt_recent(name, interval, identity):
     return age is not None and age < interval
 
 
-def _write_quota_cache(name, identity, read_at, metrics, attempted_at):
+def _write_quota_cache(name, identity, read_at, metrics, attempted_at, attempt_status, attempt_message):
     path = quota_cache_path(name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -541,7 +563,8 @@ def _write_quota_cache(name, identity, read_at, metrics, attempted_at):
         fd, temp = tempfile.mkstemp(prefix=f".{name}-", dir=path.parent)
         with os.fdopen(fd, "w") as f:
             json.dump({"read_at": read_at, "identity": identity, "metrics": metrics,
-                       "attempted_at": attempted_at}, f)
+                       "attempted_at": attempted_at, "attempt_status": attempt_status,
+                       "attempt_message": attempt_message}, f)
             f.flush(); os.fsync(f.fileno())
         os.chmod(temp, 0o600)
         os.replace(temp, path)
@@ -553,17 +576,43 @@ def quota_mark_attempt(name, identity):
     """Carimba a tentativa antes da chamada, preservando a última leitura boa.
 
     É este carimbo que faz o intervalo mínimo valer depois de falhas: sem ele, três tentativas
-    seguidas produziam três chamadas.
+    seguidas produziam três chamadas. O desfecho fica ``pending`` até a chamada responder; é
+    ``quota_mark_failure`` que registra a falha.
     """
     data = quota_cache(name, identity) or {}
     metrics = data.get("metrics") if isinstance(data.get("metrics"), list) else []
     read_at = data.get("read_at") if isinstance(data.get("read_at"), str) else None
-    _write_quota_cache(name, identity, read_at, metrics, stamp())
+    _write_quota_cache(name, identity, read_at, metrics, stamp(), "pending", None)
+
+
+def quota_mark_failure(name, identity, message):
+    """Registra o desfecho malsucedido da tentativa, sem apagar a última leitura boa.
+
+    Sem este registro, a etapa seguinte reaproveitava a leitura anterior como ``ok`` e o
+    coletor a reclassificava como leitura vencida — a falha saía da tela sem o serviço ter
+    voltado a responder.
+    """
+    data = quota_cache(name, identity) or {}
+    metrics = data.get("metrics") if isinstance(data.get("metrics"), list) else []
+    read_at = data.get("read_at") if isinstance(data.get("read_at"), str) else None
+    _write_quota_cache(name, identity, read_at, metrics, stamp(), "failure",
+                       text(message, QUOTA_FAILURE_MESSAGE, 200))
+
+
+def quota_reused_service(name, cached, source, identity, message):
+    """Serviço a partir da leitura reaproveitada, com o estado real da última tentativa."""
+    result = service(name, source=source, metrics=cached["metrics"], identity=identity,
+                     message=message)
+    # Horário real da leitura: frescor não se inventa.
+    result["read_at"] = cached["read_at"]
+    if cached["failure"]:
+        result.update(status="stale", stale_reason="failure", message=cached["failure"])
+    return result
 
 
 def quota_write_cache(name, identity, read_at, metrics):
     """Guarda a última leitura em arquivo privado; só o digest da conta, nunca o token."""
-    _write_quota_cache(name, identity, read_at, metrics, stamp())
+    _write_quota_cache(name, identity, read_at, metrics, stamp(), "ok", None)
 
 
 def quota_deferred(interval):
@@ -579,7 +628,8 @@ def meta_cache_path():
 
 
 def meta_read_cache(config, identity):
-    return quota_read_cache("meta", meta_interval(config), identity)
+    """Leitura anterior da assinatura, reaproveitável dentro do intervalo mínimo."""
+    return quota_reuse("meta", meta_interval(config), identity)
 
 
 def meta_write_cache(identity, read_at, metrics):
@@ -639,23 +689,30 @@ def meta(config=None):
     interval = meta_interval(config)
     cached = meta_read_cache(config, identity)
     if cached:
-        read_at, metrics = cached
-        result = service("meta", source=source, metrics=metrics, identity=identity,
-                         message="Leitura reaproveitada; a assinatura é consultada respeitando um "
-                                 "intervalo mínimo entre chamadas.")
-        # Não inventar frescor: o applet passa a mostrar a leitura como antiga pelo horário real.
-        result["read_at"] = read_at
-        return result
+        return quota_reused_service(
+            "meta", cached, source, identity,
+            "Leitura reaproveitada; a assinatura é consultada respeitando um intervalo mínimo "
+            "entre chamadas.")
     if quota_attempt_recent("meta", interval, identity):
         # A tentativa anterior (mesmo sem leitura boa) ainda está dentro do intervalo: não
         # repetir a chamada é o ponto do intervalo mínimo.
         raise quota_deferred(interval)
     quota_mark_attempt("meta", identity)
-    payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
+    try:
+        payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
+    except Unavailable as error:
+        quota_mark_failure("meta", identity, str(error))
+        raise
     read_at = stamp()
     metrics = parse_meta(payload)
-    if metrics:
-        meta_write_cache(identity, read_at, metrics)
+    if not metrics:
+        # Mesma regra do Claude: resposta sem os percentuais é tentativa falha registrada, e não
+        # uma leitura boa que reaparece como "atualização pendente" na rodada seguinte.
+        erro = Unavailable("A Meta respondeu sem os percentuais da assinatura; rode `diag meta` "
+                           "e relate o resultado no GitHub para ajustar o conector.", "error")
+        quota_mark_failure("meta", identity, str(erro))
+        raise erro
+    meta_write_cache(identity, read_at, metrics)
     return service("meta", source=source, metrics=metrics, identity=identity,
                    message=meta_message(payload))
 
@@ -754,23 +811,25 @@ def claude(config=None):
     identity = hashlib.sha256(token.encode()).hexdigest()
     source = "Claude Code · assinatura (não verificado)"
     interval = claude_interval(config)
-    cached = quota_read_cache("claude", interval, identity)
+    cached = quota_reuse("claude", interval, identity)
     if cached:
-        read_at, metrics = cached
-        result = service("claude", source=source, metrics=metrics, identity=identity,
-                         message="Leitura reaproveitada; a rota é consultada respeitando um "
-                                 "intervalo mínimo entre chamadas.")
-        result["read_at"] = read_at  # horário real: frescor não se inventa
-        return result
+        return quota_reused_service(
+            "claude", cached, source, identity,
+            "Leitura reaproveitada; a rota é consultada respeitando um intervalo mínimo entre "
+            "chamadas.")
     if quota_attempt_recent("claude", interval, identity):
         raise quota_deferred(interval)
     quota_mark_attempt("claude", identity)
-    payload = request(CLAUDE_USAGE_URL, token, headers={"anthropic-beta": CLAUDE_BETA})
-    read_at = stamp()
-    metrics = parse_claude(payload)
-    if not metrics:
-        raise Unavailable("Resposta sem as janelas esperadas; rode `diag claude` e relate o "
-                          "resultado no GitHub para ajustar o conector.")
+    try:
+        payload = request(CLAUDE_USAGE_URL, token, headers={"anthropic-beta": CLAUDE_BETA})
+        read_at = stamp()
+        metrics = parse_claude(payload)
+        if not metrics:
+            raise Unavailable("Resposta sem as janelas esperadas; rode `diag claude` e relate o "
+                              "resultado no GitHub para ajustar o conector.")
+    except Unavailable as error:
+        quota_mark_failure("claude", identity, str(error))
+        raise
     quota_write_cache("claude", identity, read_at, metrics)
     return service("claude", source=source, metrics=metrics, identity=identity,
                    message=claude_message(payload, oauth))

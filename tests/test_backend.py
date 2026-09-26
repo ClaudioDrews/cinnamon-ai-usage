@@ -904,6 +904,170 @@ class CredentialPrecedenceTests(unittest.TestCase):
                 cofre.clear()
                 self.assertEqual(p.credentials.service_value('grok', config), 'chave-velha')
 
+    def test_the_origin_the_window_shows_matches_the_value_the_backend_uses(self):
+        # Onde a coleta lê o valor e onde a janela diz que ele está têm de ser o mesmo lugar:
+        # com o cofre de um alias e o arquivo do nome preferido, a janela informava "do arquivo
+        # indicado" enquanto a coleta usava a chave do cofre.
+        limpo = {k: v for k, v in os.environ.items()
+                 if k not in ('XAI_MANAGEMENT_API_KEY', 'XAI_MANAGEMENT_KEY')}
+        nomes = ('XAI_MANAGEMENT_API_KEY', 'XAI_MANAGEMENT_KEY')
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, limpo, clear=True):
+            arquivo = Path(tmp)/'secrets.env'
+            arquivo.write_text('XAI_MANAGEMENT_API_KEY=chave-velha\n')
+            config = {'credentials_path': str(arquivo)}
+            cofre = {'XAI_MANAGEMENT_KEY': 'chave-nova'}
+            with patch.object(p.credentials, 'keyring_get',
+                              side_effect=lambda nome: cofre.get(nome)):
+                self.assertEqual(p.credentials.service_value('grok', config), 'chave-nova')
+                self.assertEqual(p.credentials.source_label(nomes, config), 'guardado no cofre')
+                cofre.clear()
+                self.assertEqual(p.credentials.service_value('grok', config), 'chave-velha')
+                self.assertEqual(p.credentials.source_label(nomes, config), 'do arquivo indicado')
+                os.environ['XAI_MANAGEMENT_KEY'] = 'chave-do-ambiente'
+                self.assertEqual(p.credentials.source_label(nomes, {}), 'da variável de ambiente')
+                del os.environ['XAI_MANAGEMENT_KEY']
+            self.assertEqual(p.credentials.source_label(nomes, {}), 'não configurado')
+
+    def test_the_window_takes_the_precedence_order_from_the_backend(self):
+        # A interface não repete a regra: se ela reimplementasse a ordem, as duas voltariam a
+        # discordar em silêncio.
+        fonte = (Path(__file__).resolve().parents[1]/'backend'/'credentials_window.py').read_text()
+        self.assertIn('credentials.source_label(', fonte)
+        self.assertNotIn('keyring_get(', fonte)
+
+
+class ThirdReviewTests(unittest.TestCase):
+    """Terceira revisão: falha registrada não pode sumir na leitura reaproveitada."""
+
+    def _tmp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return directory.name
+
+    def _meta_login(self, token='token-de-teste'):
+        path = Path(self._tmp())/'auth.json'
+        path.write_text(json.dumps({'providers': {'meta': {'access_token': token}}}))
+        return str(path)
+
+    def _claude_login(self, token='token-de-teste'):
+        path = Path(self._tmp())/'.credentials.json'
+        path.write_text(json.dumps({'claudeAiOauth': {
+            'accessToken': token, 'refreshToken': 'nunca-deve-sair',
+            'expiresAt': int((time.time() + 3600) * 1000)}}))
+        return str(path)
+
+    def _meta_payload(self, janela=40, semana=20):
+        agora = int(time.time())
+        return {'subs_tier_name': 'Plano de exemplo', 'subs_usage': {
+            'window': {'used_percent': janela, 'window_duration_mins': 300,
+                       'resets_at': agora + 3600},
+            'weekly': {'used_percent': semana, 'resets_at': agora + 86400}}}
+
+    @staticmethod
+    def _claude_payload():
+        return {'five_hour': {'utilization': 35.0, 'resets_at': '2026-09-26T22:00:00+00:00'},
+                'seven_day': {'utilization': 14.0, 'resets_at': '2026-10-02T20:00:00+00:00'}}
+
+    def _vence_o_intervalo(self, cache_home, servico):
+        """Envelhece o carimbo da tentativa para o intervalo mínimo deixar de valer.
+
+        O intervalo é de 300 s (Claude) e 900 s (Meta); sem envelhecer o carimbo a consulta
+        seguinte seria reaproveitada e a falha nem chegava a ser provocada.
+        """
+        caminho = Path(cache_home)/'cinnamon-ai-usage'/f'{servico}.json'
+        guardado = json.loads(caminho.read_text())
+        guardado['attempted_at'] = p.stamp(time.time() - 7200)
+        caminho.write_text(json.dumps(guardado))
+        return guardado
+
+    def test_a_reused_reading_keeps_the_failure_of_the_last_attempt(self):
+        # Sequência do revisor: leitura boa, HTTP 429 na seguinte e a rodada depois do 429 sem
+        # chamada nova. Antes, o conector devolvia a leitura como `ok` e o coletor a reclassificava
+        # como "atualização pendente" — a falha saía da tela sem o serviço ter voltado.
+        cache = self._tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False):
+            config = {'token_files': {'meta': self._meta_login()}}
+            with patch.object(p, 'request', return_value=self._meta_payload()):
+                primeira = p.collect_provider('meta', config)
+            self.assertEqual(primeira['status'], 'ok')
+            self._vence_o_intervalo(cache, 'meta')
+            with patch.object(p, 'request', side_effect=p.Unavailable(
+                    'Limite de consultas; aguarde a próxima atualização.', 'error')) as request:
+                falha = p.collect_provider('meta', config)
+                self.assertEqual(request.call_count, 1)
+            self.assertEqual(falha['status'], 'error')
+
+            with patch.object(p, 'request') as request:
+                seguinte = p.collect_provider('meta', config)
+                request.assert_not_called()  # o intervalo mínimo continua valendo
+            self.assertEqual(seguinte['status'], 'stale')
+            self.assertEqual(seguinte['stale_reason'], 'failure')
+            self.assertEqual(seguinte['message'], falha['message'])
+            self.assertEqual(seguinte['read_at'], primeira['read_at'])  # horário real
+            self.assertEqual(seguinte['metrics'], primeira['metrics'])
+
+            # O coletor não pode trocar o motivo: vencido o TTL, o veredito continua sendo falha.
+            resultado = c.stale_read({'services': [c.merge_history(seguinte, primeira)]},
+                                     ttl=2)['services'][0]
+            self.assertEqual((resultado['status'], resultado['stale_reason']),
+                             ('stale', 'failure'))
+            self.assertIn('falhou', c.stale_warning(resultado))
+
+    def test_the_claude_connector_records_the_same_way(self):
+        cache = self._tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False):
+            config = {'token_files': {'claude': self._claude_login()}}
+            with patch.object(p, 'request', return_value=self._claude_payload()):
+                primeira = p.collect_provider('claude', config)
+            self.assertEqual(primeira['status'], 'ok')
+            self._vence_o_intervalo(cache, 'claude')
+            # Resposta sem as janelas esperadas também é tentativa falha registrada.
+            with patch.object(p, 'request', return_value={'limits': [{'kind': 'novo'}]}):
+                falha = p.collect_provider('claude', config)
+            self.assertEqual(falha['status'], 'unavailable')
+            with patch.object(p, 'request') as request:
+                seguinte = p.collect_provider('claude', config)
+                request.assert_not_called()
+            self.assertEqual(seguinte['status'], 'stale')
+            self.assertEqual(seguinte['stale_reason'], 'failure')
+            self.assertEqual(seguinte['metrics'], primeira['metrics'])
+
+    def test_a_service_that_answers_again_leaves_the_failure_behind(self):
+        cache = self._tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False):
+            config = {'token_files': {'meta': self._meta_login()}}
+            with patch.object(p, 'request', return_value=self._meta_payload()):
+                p.collect_provider('meta', config)
+            self._vence_o_intervalo(cache, 'meta')
+            with patch.object(p, 'request', side_effect=p.Unavailable(
+                    'Limite de consultas; aguarde a próxima atualização.', 'error')):
+                p.collect_provider('meta', config)
+            self._vence_o_intervalo(cache, 'meta')
+            with patch.object(p, 'request', return_value=self._meta_payload(58, 21)) as request:
+                voltou = p.collect_provider('meta', config)
+                self.assertEqual(request.call_count, 1)
+            self.assertEqual(voltou['status'], 'ok')
+            self.assertNotIn('stale_reason', voltou)
+            with patch.object(p, 'request') as request:
+                outra = p.collect_provider('meta', config)
+                request.assert_not_called()
+            self.assertEqual(outra['status'], 'ok')
+            self.assertNotIn('stale_reason', outra)
+
+    def test_a_first_failure_without_a_reading_is_still_deferred_not_ok(self):
+        # Sem leitura anterior não há o que reaproveitar: a resposta honesta continua sendo a
+        # consulta adiada, e o registro da falha não inventa valores.
+        cache = self._tmp()
+        with patch.dict(os.environ, {'XDG_CACHE_HOME': cache}, clear=False), \
+             patch.object(p, 'request', side_effect=p.Unavailable('HTTP 429', 'error')) as request:
+            config = {'token_files': {'meta': self._meta_login()}}
+            p.collect_provider('meta', config)
+            segunda = p.collect_provider('meta', config)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(segunda['status'], 'unavailable')
+        self.assertEqual(segunda['metrics'], [])
+        self.assertIn('Consulta adiada', segunda['message'])
+
 
 if __name__ == '__main__':
     unittest.main()

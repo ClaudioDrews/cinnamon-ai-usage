@@ -80,15 +80,14 @@ def save_config(config):
 
 
 def source_of(name, config):
-    """De onde o valor viria hoje, sem revelar o valor."""
-    for candidate in (name,) + KEY_ALIASES.get(name, ()):
-        if credentials.keyring_get(candidate):
-            return "guardado no cofre"
-        if credentials.read_file(config.get("credentials_path")).get(candidate):
-            return "do arquivo indicado"
-        if os.environ.get(candidate):
-            return "da variável de ambiente"
-    return "não configurado"
+    """De onde o valor viria hoje, sem revelar o valor.
+
+    A ordem é a do backend (``credentials.value_source``): o cofre vence em **qualquer** um dos
+    nomes aceitos, e só depois vêm arquivo e ambiente. Antes a checagem era por nome — cofre,
+    arquivo e ambiente de um candidato antes de passar ao próximo — e a janela informava "do
+    arquivo indicado" enquanto a coleta usava a chave guardada no cofre de um alias.
+    """
+    return credentials.source_label((name,) + KEY_ALIASES.get(name, ()), config)
 
 
 class CredentialsWindow(Gtk.ApplicationWindow):

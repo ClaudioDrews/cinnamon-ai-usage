@@ -260,38 +260,66 @@ def resolve(names, config=None):
     return found
 
 
+def value_source(names, config=None):
+    """Camada que forneceria o valor para ``names``, e o próprio valor.
+
+    Fonte única da precedência: o cofre vence em **qualquer** um dos nomes aceitos, e só então
+    o arquivo indicado, e só então o ambiente. Quem lê o valor (``service_value``) e quem apenas
+    informa a origem (janela de credenciais) consultam esta função — antes a janela checava
+    cofre, arquivo e ambiente de um nome antes de passar ao próximo e dizia "do arquivo
+    indicado" enquanto a coleta usava a chave guardada no cofre de um alias.
+    """
+    names = [name for name in names if name]
+    for name in names:
+        value = keyring_get(name)
+        if value:
+            return "cofre", value
+    file_values = read_file((config or {}).get("credentials_path"))
+    for name in names:
+        if file_values.get(name):
+            return "arquivo", file_values[name]
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return "ambiente", value
+    return None, None
+
+
+SOURCE_LABELS = {"cofre": "guardado no cofre", "arquivo": "do arquivo indicado",
+                 "ambiente": "da variável de ambiente"}
+
+
+def source_label(names, config=None):
+    """Rótulo público da origem do valor, sem revelar o valor."""
+    layer, _value = value_source(names, config)
+    return SOURCE_LABELS.get(layer or "", "não configurado")
+
+
 def service_value(service, config=None):
     """Primeiro valor disponível entre as variáveis do serviço, ou None.
 
-    O cofre vem antes, em **qualquer** um dos nomes aceitos: quem digitou a chave na janela de
-    Credenciais espera que ela valha, e não que um alias antigo do arquivo ou do ambiente vença.
-    Antes, salvar ``XAI_MANAGEMENT_KEY`` não substituía a ``XAI_MANAGEMENT_API_KEY`` que o
-    backend preferia — a interface dizia "guardado no cofre" e a coleta usava a chave velha.
+    A ordem é a de ``value_source``: o cofre vem antes, em **qualquer** um dos nomes aceitos —
+    quem digitou a chave na janela de Credenciais espera que ela valha, e não que um alias
+    antigo do arquivo ou do ambiente vença. Antes, salvar ``XAI_MANAGEMENT_KEY`` não substituía
+    a ``XAI_MANAGEMENT_API_KEY`` que o backend preferia — a interface dizia "guardado no cofre"
+    e a coleta usava a chave velha.
     """
     names = SERVICE_KEYS.get(service, ())
     if not names:
         return None
-    for name in names:
-        value = keyring_get(name)
-        if value:
-            return value
-    values = resolve(names, config)
-    for name in names:
-        if values.get(name):
-            return values[name]
-    return None
+    return value_source(names, config)[1]
 
 
 def setting_value(service, config=None):
-    """Primeiro valor disponível entre as variáveis não secretas do serviço, ou None."""
+    """Primeiro valor disponível entre as variáveis não secretas do serviço, ou None.
+
+    Mesma ordem de ``value_source``: configuração própria tem precedência no chamador, e aqui
+    vale cofre, arquivo e ambiente, nessa ordem.
+    """
     names = SERVICE_SETTINGS.get(service, ())
     if not names:
         return None
-    values = resolve(names, config)
-    for name in names:
-        if values.get(name):
-            return values[name]
-    return None
+    return value_source(names, config)[1]
 
 
 def oauth_token(service, config=None):
