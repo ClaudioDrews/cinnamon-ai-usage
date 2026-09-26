@@ -1,5 +1,27 @@
 # Validation of version 0.2.0 — 25 and 26/09/2026
 
+## Current state — 26/09/2026
+
+What the panel showed at the end of the round, connector by connector. The sections below keep
+the chronological record, with the numbers of each moment; where they disagree with this table,
+this table is what holds.
+
+| Connector | Today | What the reading rests on |
+|---|---|---|
+| Codex | reading OK | `codex app-server`, two quota windows |
+| OpenCode Go | reading OK | the application key, three windows from `usage.rolling/weekly/monthly` |
+| Nous | reading OK | the OAuth token of the Hermes login, three balances |
+| DeepSeek | reading OK | balance |
+| OpenRouter | reading OK | monthly spend; with no cap on the key, no percentage is invented |
+| Grok / xAI | reading OK | management key and `team_id`; prepaid balance of the Management API. The Grok subscription is not read here — that plan needs another source |
+| Meta / Muse Code | reading OK, with reuse between calls | current and weekly window of the subscription; the route is the one that issues the Muse Code credential, queried at most every 15 minutes, and a failed attempt keeps the previous reading as stale |
+| Claude Code | no reading on this machine | there is no Anthropic account here. Route, headers, credential field and the 0–100 scale of the response match an independent published implementation (the applet `claude-usage@mtwebster`, accepted in Spices), but none of that was measured on a real account from this machine: the connector stays labeled unverified |
+| Antigravity | reading OK while the IDE is open | local server of the IDE, probed on loopback. With the IDE closed the line shows a stale reading — expected, and not a failure of the applet |
+
+The `Result` block below is the record of the first day of the round: it reports Antigravity
+without a validated query and Grok without a management key, both true on 25/09 and both
+superseded by the table above.
+
 ## Result
 
 Local implementation on Linux Mint 22.3, Cinnamon 6.6.9, Python 3.12 and CJS 115.1. Real data was consulted only for reading usage/balance. This document contains no percentages, balances, renewal times, paths of this machine or agent session identifiers: the numbers cited are from tests, from interface thresholds or from the shape of the response. No credential enters the repository, the cache, the log or the interface — credential reading only returns the value to the service call.
