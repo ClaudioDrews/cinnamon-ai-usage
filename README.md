@@ -28,7 +28,7 @@ Verificado em 25/09/2026, Mint 22.3 / Cinnamon 6.6.9:
 | OpenRouter | Gasto mensal/acumulado; percentual se a chave tiver limite | Consulta autenticada OK; sem teto na chave, nenhuma barra inventada |
 | Antigravity | Créditos do plano e cotas por modelo, via servidor local | Consulta autenticada OK com o IDE aberto: créditos do plano e modelos nomeados |
 | Grok / xAI | Saldo pré-pago da API de gerenciamento | Consulta autenticada OK com management key e team_id; a assinatura Grok não aparece aqui |
-| Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada OK: janela corrente e semanal, com percentuais e horários de renovação |
+| Meta AI (Muse Code) | Janela corrente e semanal da assinatura | Consulta autenticada responde; em 26/09/2026 a rota devolveu os metadados da conta **sem** o bloco de uso, preservando a última leitura. Veja a seção do serviço |
 | Claude Code | Janela de 5 h e semanal da assinatura (e janelas por modelo, quando vierem) | **Não verificada**: sem conta Anthropic nesta máquina; rota e formato vêm da documentação pública da comunidade |
 
 O conector Grok monitora **a API xAI**, não a assinatura SuperGrok/Grok Build. Esses planos exigem outra fonte. Antigravity e Go usam interfaces que podem mudar; alterações são tratadas como indisponibilidade, sem transformar ausência de dado em zero. O conector Meta lê a **assinatura** do Muse Code (janela corrente e semanal), não a cobrança por uso da API da Meta. O conector do Claude Code é o único publicado **sem verificação em conta real** — está implementado, testado contra o formato documentado e rotulado como não verificado; a seção dele explica o que falta e como relatar.
@@ -111,7 +111,9 @@ Codex usa o login do próprio CLI (`codex login`) em `~/.codex/auth.json`, o Mus
 
 ### Assinatura do Muse Code (Meta)
 
-A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `used_percent` no arquivo local — o painel `/cost` vive só na memória do cliente. O que funciona é a chamada que o próprio cliente faz ao subir, `POST https://api.meta.ai/muse-code/key`, com o token OAuth do `muse login`. Ela devolve `subs_usage` com a janela corrente (`used_percent`, `window_duration_mins`, `resets_at` em epoch) e a semanal.
+A Meta não expõe rota de leitura de quota: nem `GET /muse-code/usage`, nem `used_percent` no arquivo local — o painel `/cost` vive só na memória do cliente. O que funciona é a chamada que o próprio cliente faz ao subir, `POST https://api.meta.ai/muse-code/key`, com o token OAuth do `muse login`. Ela devolvia `subs_usage` com a janela corrente (`used_percent`, `window_duration_mins`, `resets_at` em epoch) e a semanal — veja o estado atual logo abaixo.
+
+**Estado em 26/09/2026 — a rota parou de devolver o bloco de uso.** A leitura das 16:59:16Z trouxe as duas janelas com percentuais; a tentativa das 17:17:48Z, na mesma rota, devolveu só os metadados da conta e da assinatura (chave, e-mail, tier, situação da assinatura — `is_subs_active` verdadeiro, sem exigência de pagamento) e **nenhum** `subs_usage`. O conector fez o que devia: marcou a tentativa como falha, preservou a leitura anterior e a mostrou como leitura antiga por falha, em vez de reaproveitá-la como leitura boa. Isso é o que a resposta mostrou; **não** é prova de que a Meta mudou a rota — pode ser mudança do lado dela, algum estado que a chamada agora carrega, ou variação entre chamadas. O que separa as hipóteses é o relatório do `diag meta` (abaixo), que diz quais campos vieram e quais dos esperados faltaram.
 
 Duas coisas que você deve saber antes de habilitar:
 
@@ -130,6 +132,14 @@ Verificado com o Muse Code **1.4.0** (`1.4.0-R4161.1`) e `auth.json` em `schema_
 O conector não executa o binário do Muse Code — nem precisa que ele esteja instalado para ler o arquivo, nem que esteja em execução —, então a versão do CLI instalada não muda o comportamento do applet. O que depende de versão é o formato do arquivo e a rota.
 
 Quando a Meta mudar algo, o esperado é degradar e nunca inventar: arquivo ausente ou sem token → `unconfigured` (a mensagem pede `muse login`); resposta sem `subs_usage` → `unavailable`, com o último valor preservado; falha de rede → `error`, com o valor anterior marcado como leitura antiga. Nenhum desses casos vira 0%, e nenhum deles quebra o painel.
+
+Se a resposta vier sem `subs_usage`, ou com os percentuais em outro nome, relate no GitHub com a saída de:
+
+```bash
+python3 backend/collector.py diag meta
+```
+
+Esse relatório traz **nomes de campos, tipos e faixa dos números**, mais a lista dos campos que o conector procura — dizendo quais estão ausentes, nulos ou com outro tipo. Nenhum valor, identificador de conta ou caminho da sua máquina. É um caminho que existe de verdade: o `diag` responde por qualquer serviço que as mensagens de falha sugiram, e um teste confere isso.
 
 Se você mantém mais de uma versão do Muse Code com logins em arquivos diferentes, aponte o do seu uso atual em `token_files.meta` (veja a configuração abaixo).
 

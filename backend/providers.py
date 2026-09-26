@@ -888,7 +888,65 @@ def claude_diag(config=None):
     return report
 
 
-DIAGNOSTICS = {"claude": claude_diag}
+META_PERCENT_FIELDS = (("subs_usage", "window", "used_percent"),
+                       ("subs_usage", "weekly", "used_percent"))
+
+
+def meta_fields(payload):
+    """Onde cada campo esperado aparece e de que tipo — sem reproduzir valor algum.
+
+    ``describe`` devolve a faixa de um número, nunca o número; aqui a pergunta é outra: o
+    caminho que o conector procura existe nesta resposta? É isso que separa "a resposta não traz
+    os percentuais" de "o campo mudou de nome ou de tipo", e é o que o relato de issue precisa
+    dizer para o conector ser ajustável sem adivinhação.
+    """
+    achados = {}
+    for caminho in META_PERCENT_FIELDS:
+        atual, achado = payload, True
+        for chave in caminho:
+            if isinstance(atual, dict) and chave in atual:
+                atual = atual[chave]
+            else:
+                achado = False
+                break
+        achados[".".join(caminho)] = ("ausente" if not achado else
+                                      "nulo" if atual is None else describe(atual))
+    return achados
+
+
+def meta_diag(config=None):
+    """Diagnóstico do conector da assinatura da Meta, para relatar em issue sem vazar nada.
+
+    Sem credencial não há consulta, e o relatório diz isso em vez de virar erro de rede. Com
+    credencial, a consulta é a mesma rota da coleta e o relatório traz nomes de campos, tipos e
+    faixa dos números — nunca valores, identificadores de conta ou caminhos desta máquina.
+    """
+    config = config or {}
+    declared = ((config or {}).get("token_files") or {}).get("meta")
+    origem = ("configuração" if declared else
+              "MUSE_AUTH_PATH" if os.environ.get("MUSE_AUTH_PATH") else "padrão")
+    path = meta_login_path(config)
+    report = {"origem_do_caminho": origem, "arquivo_existe": path.exists()}
+    token = credentials.oauth_token("meta", {"token_files": {"meta": str(path)}})
+    if not token:
+        report["credencial"] = "não encontrada"
+        return report
+    report["credencial"] = "encontrada"
+    login = read_json(path)
+    report["campos_do_login"] = sorted(login.keys()) if isinstance(login, dict) else []
+    try:
+        payload = request(META_KEY_URL, token, data={}, headers={"x-client-id": "tbh:tui"})
+    except Unavailable as e:
+        report["consulta"] = str(e)
+        return report
+    report["consulta"] = "ok"
+    report["estrutura"] = describe(payload)
+    report["campos_esperados"] = meta_fields(payload)
+    report["janelas_reconhecidas"] = [m["id"] for m in parse_meta(payload)]
+    return report
+
+
+DIAGNOSTICS = {"claude": claude_diag, "meta": meta_diag}
 
 
 def diagnose(id_, config=None):

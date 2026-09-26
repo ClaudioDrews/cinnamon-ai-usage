@@ -208,6 +208,36 @@ a unidade monetária, não um número de conta —, e o comentário de um commit
 cita o exemplo de `-1000` centavos da **documentação pública da xAI** — é o exemplo da
 documentação, não uma resposta da conta.
 
+## Investigação da falha do conector Meta (26/09/2026)
+
+Na primeira coleta do applet já com o backend corrigido, a chamada real das 17:17:48Z voltou **sem**
+os percentuais e o código novo registrou a tentativa como falha, preservando a leitura anterior
+(`read_at` 16:59:16Z, com as duas janelas e percentuais) e mostrando o serviço como leitura antiga
+por falha. O relatório recomendava `diag meta`, e a recomendação era um beco sem saída: `DIAGNOSTICS`
+trazia só o Claude, e o comando respondia "não há diagnóstico para este serviço" sem consultar nada.
+
+- Corrigido: existe `meta_diag`, na mesma disciplina de privacidade do `claude_diag` — nomes de
+  campos, tipos e faixa dos números, nenhum valor, identificador de conta ou caminho da máquina;
+  sem credencial não há chamada. Além da estrutura, o relatório traz `campos_esperados`: para cada
+  caminho que o conector procura (`subs_usage.window.used_percent`, `subs_usage.weekly.used_percent`),
+  se está ausente, nulo, ou com que tipo veio.
+- Um teste lê as mensagens do módulo e a tabela `DIAGNOSTICS`: nenhuma sugestão de `diag` aponta para
+  serviço sem relatório. Foi o desencontro entre mensagem e tabela que produziu o beco sem saída.
+- Reprodução da diferença, com o mesmo comando: o código então instalado no painel devolveu
+  `{"diagnostico": "não há diagnóstico para este serviço"}`; o código corrigido devolveu o relatório
+  completo, dizendo que a resposta traz `subs_usage` ausente e nenhuma janela reconhecida.
+
+**Correção de uma afirmação minha anterior.** Ao relatar a falha, eu disse que "o formato da resposta
+da API mudou ou o campo que o conector procura não vem mais". A evidência não sustenta a primeira
+parte: ela mostra que o parser não encontrou os percentuais, e nada além disso. O que se sabe, medido:
+a leitura das 16:59:16Z, na mesma rota, trouxe as duas janelas com percentuais; a tentativa das
+17:17:48Z devolveu só metadados da conta e da assinatura, com `is_subs_active` verdadeiro e sem
+exigência de pagamento, e nenhum `subs_usage`. Se isso é mudança do lado da Meta, algum estado que a
+chamada passou a carregar, ou variação entre chamadas, **não está provado** — e o relatório do
+`diag meta` é o que separa as hipóteses. Enquanto não houver resposta nova com as janelas, o serviço
+aparece como leitura antiga por falha, com a leitura de 16:59:16Z preservada; nenhum número foi
+inventado e nenhuma barra ficou cheia.
+
 ## Delegação e revisão
 
 Hermes implementou a base da janela GTK em `backend/window.py`; OpenCode implementou a primeira versão de `applet/`. Codex definiu o contrato, implementou os conectores/cache/testes/instalador e revisou as entregas. A revisão corrigiu APIs do Cinnamon, assinatura e captura de saída de Gio.Subprocess, temporizadores, composição St, fechamento GTK e apresentação de renovação. Passar em `node --check` sozinho não teria detectado esses erros de integração.

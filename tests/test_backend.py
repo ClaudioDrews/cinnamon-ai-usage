@@ -324,6 +324,45 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['metrics'], [])
 
+    def test_meta_diagnostic_reports_structure_without_values(self):
+        login = self._meta_login()
+        payload = self._meta_payload(window=42, weekly=7)
+        with patch.object(p, 'request', side_effect=lambda *a, **k: payload):
+            report = p.diagnose('meta', {'token_files': {'meta': login}})
+        texto = json.dumps(report, ensure_ascii=False)
+        self.assertEqual(report['consulta'], 'ok')
+        self.assertEqual(report['credencial'], 'encontrada')
+        self.assertEqual(report['janelas_reconhecidas'], ['janela', 'semanal'])
+        self.assertEqual(report['campos_esperados'],
+                         {'subs_usage.window.used_percent': 'número entre 1 e 100',
+                          'subs_usage.weekly.used_percent': 'número entre 1 e 100'})
+        self.assertNotIn('nunca-deve-sair', texto)      # chave da conta
+        self.assertNotIn('exemplo.invalid', texto)      # e-mail da conta
+        self.assertNotIn('27681393394859588', texto)    # identificador da assinatura
+        self.assertNotIn('token-de-teste', texto)       # credencial
+        self.assertNotIn(login, texto)                  # caminho desta máquina
+
+    def test_meta_diagnostic_names_the_field_that_changed(self):
+        # Resposta em que a janela veio com texto no lugar do número e a semanal desapareceu: o
+        # relatório tem de dizer isso campo por campo, sem o valor, para o conector ser ajustável.
+        payload = {'subs_usage': {'window': {'used_percent': 'três', 'window_duration_mins': 300},
+                                  'weekly': {'percent': 7}}}
+        with patch.object(p, 'request', side_effect=lambda *a, **k: payload):
+            report = p.meta_diag({'token_files': {'meta': self._meta_login()}})
+        self.assertEqual(report['janelas_reconhecidas'], [])
+        self.assertEqual(report['campos_esperados']['subs_usage.window.used_percent'], 'texto')
+        self.assertEqual(report['campos_esperados']['subs_usage.weekly.used_percent'], 'ausente')
+        self.assertEqual(report['estrutura']['subs_usage']['weekly'], {'percent': 'número entre 1 e 100'})
+        self.assertNotIn('três', json.dumps(report, ensure_ascii=False))
+
+    def test_meta_diagnostic_without_credential_does_not_call(self):
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': self._meta_tmp()}, clear=False), \
+             patch.object(p, 'request') as request:
+            report = p.diagnose('meta', {})
+        self.assertEqual(report['credencial'], 'não encontrada')
+        self.assertNotIn('consulta', report)
+        request.assert_not_called()
+
 
 class ClaudeTests(unittest.TestCase):
     """Conector do Claude Code: rotas, formas de resposta e degradação sem conta real."""
@@ -481,6 +520,27 @@ class ClaudeTests(unittest.TestCase):
     def test_diagnose_is_absent_for_services_without_one(self):
         self.assertEqual(p.diagnose('deepseek', {}),
                          {'diagnostico': 'não há diagnóstico para este serviço'})
+
+
+class DiagnosticCoverageTests(unittest.TestCase):
+    """Mensagem que manda rodar `diag X` aponta para um diagnóstico que existe.
+
+    Com o relatório de falha mandando rodar `diag meta` e a tabela trazendo só o Claude, o
+    próximo passo sugerido era um beco sem saída: o comando respondia "não há diagnóstico para
+    este serviço" e a falha ficava sem explicação. Este teste lê a tabela e as mensagens do
+    próprio módulo, então um serviço novo que sugira diagnóstico inexistente não passa.
+    """
+
+    def test_every_suggested_diagnostic_exists(self):
+        fonte = (Path(__file__).resolve().parents[1] / 'backend' / 'providers.py').read_text(encoding='utf-8')
+        sugeridos = set(re.findall(r'`diag ([a-z_]+)`', fonte))
+        self.assertTrue(sugeridos, 'nenhuma mensagem sugere diagnóstico: o teste perdeu o sentido')
+        self.assertEqual(set(), sugeridos - set(p.DIAGNOSTICS))
+
+    def test_the_recommended_diagnostic_answers_for_each_service_it_suggests(self):
+        report = p.diagnose('meta', {'token_files': {'meta': '/inexistente/auth.json'}})
+        self.assertNotIn('não há diagnóstico', json.dumps(report, ensure_ascii=False))
+        self.assertEqual(report['credencial'], 'não encontrada')
 
 
 class HistoryTests(unittest.TestCase):
