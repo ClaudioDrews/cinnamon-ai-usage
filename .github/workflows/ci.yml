@@ -1,0 +1,47 @@
+name: CI
+
+# O que roda aqui é o que roda nesta máquina: a suíte nos dois idiomas, o JavaScript, a
+# compilação do backend e o pacote do Spices conferido pelo validador oficial. Duas
+# verificações ficam de fora por dependerem da máquina — `cjs tests/check_cjs_api.js`, que
+# precisa dos typelibs do Cinnamon/Muffin, e `tests/smoke_gtk.py`, que precisa de sessão
+# gráfica. Elas continuam sendo o que se roda antes de publicar.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # librsvg2-bin dá o rsvg-convert que o pacote usa para o ícone; python3-pil é exigência
+      # do validate-spice; gettext dá o msgfmt/xgettext que ele também chama.
+      - name: Dependências
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gettext librsvg2-bin python3-pil
+
+      - name: Suíte (inglês)
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Suíte (português)
+        env:
+          LANGUAGE: pt_BR.UTF-8
+        run: python3 -m unittest discover -s tests
+
+      - name: JavaScript
+        run: |
+          node --check applet/applet.js
+          node tests/test_applet.js
+
+      - name: Compilação do backend
+        run: python3 -m compileall -q backend
+
+      - name: Pacote do Spices, com o validador oficial
+        run: |
+          curl -sSLo validate-spice \
+            https://raw.githubusercontent.com/linuxmint/cinnamon-spices-applets/master/validate-spice
+          PYTHON=python3 VALIDATE_SPICE="$PWD/validate-spice" sh scripts/spices.sh
